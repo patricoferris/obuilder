@@ -1,5 +1,6 @@
 (library
-  (name obuilder_spec)
-  (public_name obuilder-spec)
-  (preprocess (pps ppx_sexp_conv))
-  (libraries astring sexplib dockerfile))
+ (name obuilder_spec)
+ (public_name obuilder-spec)
+ (preprocess
+  (pps ppx_sexp_conv))
+ (libraries github-workflow yaml astring sexplib dockerfile))

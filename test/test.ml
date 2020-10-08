@@ -466,6 +466,53 @@ let test_docker () =
       (copy (src a b) (dst c))
      ) |}
 
+let test_action () =
+  let test name expect sexp =
+    let open Obuilder_spec in 
+    let spec = Spec.stage_of_sexp (Sexplib.Sexp.of_string sexp) in
+    let got = Action.workflow_of_spec spec |> Action.to_string in
+    let remove expect =
+      String.split_on_char '\n' expect
+      |> List.map String.trim
+      |> List.filter ((<>) "")
+      |> String.concat "\n"
+    in
+    Alcotest.(check string) name (remove expect) (remove got)
+  in
+  test "Github Workflow"
+    {| name: Github Action Workflow
+    on: [push, pull_request]
+    jobs:
+        job:
+        runs-on: ubuntu-latest
+        container:
+          image: base
+        env:
+          DEBUG: 1
+        steps:
+        - run: cd /src
+        - run: command1
+        - run: command2
+        - run: cp a b c
+        - run: cp a b c
+        - run: cp a b c
+    |} {|
+      ((from base)
+      (comment "A test comment")
+      (workdir /src)
+      (run (shell "command1"))
+      (shell /bin/sh -c)
+      (run
+        (cache (a (target /data))
+              (b (target /srv)))
+        (shell "command2"))
+      (copy (src a b) (dst c))
+      (copy (src a b) (dst c) (exclude .git _build))
+      (env DEBUG 1)
+      (user (uid 1) (gid 2))
+      (copy (src a b) (dst c))
+      ) |}
+
 let manifest =
   Alcotest.result
     (Alcotest.testable
@@ -538,6 +585,7 @@ let () =
         test_case_sync "Sexp"     `Quick test_sexp;
         test_case_sync "Cache ID" `Quick test_cache_id;
         test_case_sync "Docker"   `Quick test_docker;
+        test_case_sync "Action"   `Quick test_action;
       ];
       "build", [
         test_case "Simple"     `Quick test_simple;

@@ -1,0 +1,3 @@
+pin-depends : [
+  ["github-workflow.dev" "git+https://github.com/patricoferris/opam-github-workflow#6e74bbe43d68b7f85352715ea9040c1099b30357"]
+]

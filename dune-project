@@ -1,12 +1,16 @@
 (lang dune 2.7)
 
 (name obuilder)
+
 (formatting disabled)
 
 (generate_opam_files true)
 
-(source (github ocurrent/obuilder))
+(source
+ (github ocurrent/obuilder))
+
 (authors "talex5@gmail.com")
+
 (maintainers "talex5@gmail.com")
 
 (package
@@ -27,9 +31,9 @@
   sqlite3
   dockerfile
   obuilder-spec
-  (ocaml (>= 4.10.0))
-  (alcotest-lwt :with-test)
-))
+  (ocaml
+   (>= 4.10.0))
+  (alcotest-lwt :with-test)))
 
 (package
  (name obuilder-spec)
@@ -40,5 +44,6 @@
   ppx_deriving
   ppx_sexp_conv
   dockerfile
-  (ocaml (>= 4.10.0))
-))
+  github-workflow
+  (ocaml
+   (>= 4.10.0))))
