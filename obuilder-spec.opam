@@ -32,5 +32,5 @@ build: [
 ]
 dev-repo: "git+https://github.com/ocurrent/obuilder.git"
 pin-depends : [
-  ["github-workflow.dev" "git+https://github.com/patricoferris/opam-github-workflow#6e74bbe43d68b7f85352715ea9040c1099b30357"]
+  ["github-workflow.dev" "git+https://github.com/patricoferris/opam-github-workflow#87723134b8620fbf1ab1c3c7a14dbab52ed3e744"]
 ]

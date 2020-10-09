@@ -480,22 +480,31 @@ let test_action () =
     Alcotest.(check string) name (remove expect) (remove got)
   in
   test "Github Workflow"
-    {| name: Github Action Workflow
-    on: [push, pull_request]
-    jobs:
-        job:
+    {|name: Github Action Workflow
+      on: [push, pull_request]
+      jobs:
+      job:
         runs-on: ubuntu-latest
         container:
           image: base
+          env:
+            HOME: /home/opam
+            options: --user 1000
         env:
+          HOME: /home/opam
           DEBUG: 1
+        defaults:
+          run:
+            working-directory: /home/opam
         steps:
-        - run: cd /src
-        - run: command1
-        - run: command2
-        - run: cp a b c
-        - run: cp a b c
-        - run: cp a b c
+          - run: mkdir -p /src
+          - run: command1
+            working-directory: /src
+          - run: command2
+            working-directory: /src
+          - run: cp a b c
+          - run: cp a b c
+          - run: cp a b c
     |} {|
       ((from base)
       (comment "A test comment")

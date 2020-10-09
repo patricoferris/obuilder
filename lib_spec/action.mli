@@ -9,5 +9,8 @@ val workflow_of_spec : Spec.stage -> t
 
     Experimental. *)
 
+val pp : Format.formatter -> t -> unit 
+(** Pretty printer *)
+
 val to_string : t -> string 
 (** [to_string t] prints the workflow to a string *)
