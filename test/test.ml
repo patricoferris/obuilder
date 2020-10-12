@@ -470,7 +470,7 @@ let test_action () =
   let test name expect sexp =
     let open Obuilder_spec in 
     let spec = Spec.stage_of_sexp (Sexplib.Sexp.of_string sexp) in
-    let got = Action.workflow_of_spec spec |> Action.to_string in
+    let got = Action.workflow_of_spec ~use_docker:true spec |> Action.to_string in
     let remove expect =
       String.split_on_char '\n' expect
       |> List.map String.trim
@@ -480,16 +480,16 @@ let test_action () =
     Alcotest.(check string) name (remove expect) (remove got)
   in
   test "Github Workflow"
-    {|name: Github Action Workflow
-      on: [push, pull_request]
-      jobs:
+    {| name: Github Action Workflow
+    on: [push, pull_request]
+    jobs:
       job:
         runs-on: ubuntu-latest
         container:
           image: base
           env:
             HOME: /home/opam
-            options: --user 1000
+          options: --user 1000
         env:
           HOME: /home/opam
           DEBUG: 1
