@@ -253,6 +253,6 @@ let run ~cancelled ?stdin:stdin ~log t config results_dir =
   if Lwt.is_sleeping cancelled then Lwt.return (r :> (unit, [`Msg of string | `Cancelled]) result)
   else Lwt_result.fail `Cancelled
 
-let create ~runc_state_dir =
+let create runc_state_dir =
   Os.ensure_dir runc_state_dir;
   { runc_state_dir }

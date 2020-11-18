@@ -78,6 +78,8 @@ module type SANDBOX = sig
       @param stdin Passed to child as its standard input.
       @param log Used for child's stdout and stderr.
   *)
+
+  val create : string -> t
 end
 
 module type BUILDER = sig

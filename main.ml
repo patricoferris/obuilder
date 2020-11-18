@@ -20,16 +20,17 @@ let log tag msg =
   | `Note -> Fmt.pr "%a@." Fmt.(styled (`Fg `Yellow) string) msg
   | `Output -> output_string stdout msg; flush stdout
 
-let create_builder spec =
+let create_builder ?(macos=false) spec =
+  let module Sandbox = (val (if macos then (module Obuilder.Macos_sandbox) else (module Obuilder.Runc_sandbox)) : Obuilder.S.SANDBOX)  in 
   Obuilder.Store_spec.to_store spec >|= fun (Store ((module Store), store)) -> 
   let module Builder = Obuilder.Builder(Store)(Sandbox) in
-  let sandbox = Sandbox.create ~runc_state_dir:(Store.state_dir store / "runc") in
+  let sandbox = if macos then Sandbox.create "mac703" else Sandbox.create (Store.state_dir store / "runc") in
   let builder = Builder.v ~store ~sandbox in
   Builder ((module Builder), builder)
 
-let build store spec src_dir =
+let build store spec src_dir macos =
   Lwt_main.run begin
-    create_builder store >>= fun (Builder ((module Builder), builder)) ->
+    create_builder ~macos store >>= fun (Builder ((module Builder), builder)) ->
     let spec = Obuilder.Spec.stage_of_sexp (Sexplib.Sexp.load_sexp spec) in
     let context = Obuilder.Context.v ~log ~src_dir () in
     Builder.build builder context spec >>= function
@@ -86,6 +87,14 @@ let store =
     ~docv:"STORE"
     ["store"]
 
+let macos = 
+  Arg.value @@ 
+  Arg.flag @@ 
+  Arg.info 
+    ~doc:"Change sandboxing environment to macos, by default it is runc"
+    ~docv:"MACOS"
+    ["macos"]
+
 let id =
   Arg.required @@
   Arg.pos 0 Arg.(some string) None @@
@@ -96,7 +105,7 @@ let id =
 
 let build =
   let doc = "Build a spec file." in
-  Term.(const build $ store $ spec_file $ src_dir),
+  Term.(const build $ store $ spec_file $ src_dir $ macos),
   Term.info "build" ~doc
 
 let delete =
