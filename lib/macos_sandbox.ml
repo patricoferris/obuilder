@@ -9,7 +9,21 @@ type t = {
 }
 
 (* Run the commands as the user, the cwd will be /Users/$USER ie. ~/ *)
-let run_as ~user ~cmd = ["sudo"; "-u"; user; "-i"] @ cmd 
+let run_as ~cwd ~user ~cmd = 
+  let cwd = "./" ^ cwd in 
+  let cwd cmd = "mkdir -p " ^ cwd ^ " && cd " ^ cwd ^ " && " ^ String.concat " " cmd in 
+  let command = 
+    if List.hd cmd = "rsync" 
+    then ["sudo";] @ cmd
+    else begin 
+      match cmd with 
+        | "/bin/bash" :: "-c" :: cmd -> ["sudo"; "-u"; user; "-i"; "/bin/bash"; "-c"; cwd cmd]
+        | cmd -> ["sudo"; "-u"; user; "-i"; "/bin/bash"; "-c"; cwd cmd]
+    end 
+  in
+  Log.debug (fun f -> f "Running: %s" (String.concat " " command)); 
+    command 
+  
 
 let copy_to_log ~src ~dst =
   let buf = Bytes.create 4096 in
@@ -22,16 +36,15 @@ let copy_to_log ~src ~dst =
 
 
 let run ~cancelled ?stdin:stdin ~log t config _results_dir =
-  Lwt_io.with_temp_dir ~prefix:"obuilder-macos-" @@ fun tmp ->
   Os.with_pipe_from_child @@ fun ~r:out_r ~w:out_w ->
-  let cmd = run_as ~user:t.macos_user ~cmd:config.Config.argv in
+  let cmd = run_as ~cwd:config.Config.cwd ~user:t.macos_user ~cmd:config.Config.argv in
   let stdout = `FD_copy out_w.raw in
   let stderr = stdout in
   let copy_log = copy_to_log ~src:out_r ~dst:log in
   let proc =
     let stdin = Option.map (fun x -> `FD_copy x.Os.raw) stdin in
     let pp f = Os.pp_cmd f config.argv in
-    Os.sudo_result ~cwd:tmp ?stdin ~stdout ~stderr ~pp cmd
+    Os.exec_result ?stdin ~stdout ~stderr ~pp cmd
   in
   Os.close out_w;
   Option.iter Os.close stdin;
@@ -57,3 +70,5 @@ let run ~cancelled ?stdin:stdin ~log t config _results_dir =
 
 let create macos_user = 
   { macos_user }
+
+let sandbox = `Macos 

@@ -64,6 +64,8 @@ end
 module type SANDBOX = sig
   type t
 
+  val sandbox : [ `Runc | `Macos ]
+
   val run :
     cancelled:unit Lwt.t ->
     ?stdin:Os.unix_fd ->

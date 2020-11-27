@@ -256,3 +256,5 @@ let run ~cancelled ?stdin:stdin ~log t config results_dir =
 let create runc_state_dir =
   Os.ensure_dir runc_state_dir;
   { runc_state_dir }
+
+let sandbox = `Runc 

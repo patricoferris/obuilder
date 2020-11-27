@@ -96,13 +96,49 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
     | [item] -> Ok (`Copy_item (item, dst))
     | _ -> Fmt.error_msg "When copying multiple items, the destination must end with '/'"
 
+  let mac_copy t ~context ~base src dst exclude = 
+    let { Context.switch; src_dir; workdir; user; log; shell = _; env = _ } = context in 
+    let top_dir = if Sandbox.sandbox = `Macos then "/Users/mac703" else "" in
+    let dst = if Filename.is_relative dst then top_dir / workdir / dst else top_dir / dst in 
+    let src_manifest = sequence (List.map (Manifest.generate ~exclude ~src_dir) src) in
+    let rec excludes acc = function 
+      | [] -> acc 
+      | x::xs -> excludes ("--exclude" :: x :: acc) xs
+    in 
+    match Result.bind src_manifest (to_copy_op ~dst) with
+      | Error _ as e -> Lwt.return e
+      | Ok op -> (
+        let details = {
+          base;
+          op;
+          user;
+        } in
+      let id = Sha256.to_hex (Sha256.string (Sexplib.Sexp.to_string (sexp_of_copy_details details))) in
+      Store.build t.store ?switch ~base ~id ~log (fun ~cancelled ~log result_tmp ->
+      let argv = "rsync" :: "-av" :: src @ [ dst ] @ (excludes [] exclude) in
+      let config = Config.v
+          ~cwd:"/"
+          ~argv
+          ~hostname
+          ~user:Obuilder_spec.root
+          ~env:["PATH", "/bin:/usr/bin"]
+          ~mounts:[]
+          ~network:[]
+      in
+      Os.with_pipe_to_child @@ fun ~r:from_us ~w:_to_untar ->
+      let proc = Sandbox.run ~cancelled ~stdin:from_us ~log t.sandbox config result_tmp in
+      proc >>= fun result ->
+      Lwt.return result
+      ))
   let copy t ~context ~base { Obuilder_spec.src; dst; exclude } =
+    match Sandbox.sandbox with 
+      | `Runc -> (
     let { Context.switch; src_dir; workdir; user; log; shell = _; env = _ } = context in
     let dst = if Filename.is_relative dst then workdir / dst else dst in
     let src_manifest = sequence (List.map (Manifest.generate ~exclude ~src_dir) src) in
     match Result.bind src_manifest (to_copy_op ~dst) with
     | Error _ as e -> Lwt.return e
-    | Ok op ->
+    | Ok op -> (
       let details = {
         base;
         op;
@@ -139,7 +175,8 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
           proc >>= fun result ->
           send >>= fun () ->
           Lwt.return result
-        )
+        )))
+        | `Macos -> mac_copy t ~context ~base src dst exclude
 
   let pp_op ~(context:Context.t) f op =
     let sexp = Obuilder_spec.sexp_of_op op in
@@ -232,10 +269,37 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
     let { Saved_context.env } = Saved_context.t_of_sexp (Sexplib.Sexp.load_sexp (path / "env")) in
     Lwt_result.return (id, env)
 
+  let get_user t ~log user = 
+    log `Heading (Fmt.strf "FROM %s" user);
+    let id = Sha256.to_hex (Sha256.string user) in
+    Store.build t.store ~id ~log (fun ~cancelled:_ ~log:_ tmp ->
+        Os.sudo ["rsync"; "-av"; "/Users/mac701/local/"; "/Users/mac703/local/"] >>= fun () -> 
+        Os.sudo ["rsync"; "-av"; "/Users/mac701/Library/"; "/Users/mac703/Library/"] >>= fun () ->
+        Os.sudo ["rsync"; "-av"; "/Users/mac701/tmp/"; "/Users/mac703/tmp/"] >>= fun () ->
+        Os.sudo ["cp"; "/Users/mac701/.bash_profile"; "/Users/mac703/.bash_profile"] >>= fun () -> 
+        Os.sudo ["chown"; "-R"; "mac703"; "/Users/mac703/"] >>= fun () -> 
+        (* XXX patricoferris: Do I need to export the env too? *) 
+        Lwt.return [] >>= fun env ->
+        Os.write_file ~path:(tmp / "env")
+          (Sexplib.Sexp.to_string_hum Saved_context.(sexp_of_t {env})) >>= fun () ->
+        Lwt_result.return ()
+      )
+    >>!= fun id ->
+    let _path = Option.get (Store.result t.store id) in
+    (* let { Saved_context.env } = Saved_context.t_of_sexp (Sexplib.Sexp.load_sexp (path / "env")) in *)
+    Lwt_result.return (id, [])
+
   let build t context { Obuilder_spec.from = base; ops } =
-    get_base t ~log:context.Context.log base >>!= fun (id, env) ->
-    let context = { context with env = context.env @ env } in
-    run_steps t ~context ~base:id ops
+    match String.split_on_char ':' base with 
+     | ["user"; user] -> 
+      context.Context.log `Heading (Fmt.strf "FROM %s" user);
+      (* Building for MacOS from a template user so rsync the results over *)
+      get_user t ~log:context.Context.log user >>!= fun (id, env) ->
+      let context = { context with env = context.env @ env } in
+      run_steps t ~context ~base:id ops 
+     | _ -> get_base t ~log:context.Context.log base >>!= fun (id, env) ->
+      let context = { context with env = context.env @ env } in
+      run_steps t ~context ~base:id ops
 
   let delete ?log t id =
     Store.delete ?log t.store id

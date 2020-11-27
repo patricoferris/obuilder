@@ -23,3 +23,5 @@ let run ~cancelled ?stdin ~log t (config:Obuilder.Config.t) dir =
       )
 
 let create dir = { dir; expect = Queue.create () }
+
+let sandbox = `Runc

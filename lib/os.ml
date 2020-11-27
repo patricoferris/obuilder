@@ -39,11 +39,12 @@ let exec ?cwd ?stdin ?stdout ?stderr argv =
 let running_as_root = Unix.getuid () = 0
 
 let sudo ?stdin args =
-  let args = if running_as_root then args else "sudo" :: args in
+  let env = if List.hd args = "zfs" then [ "DYLD_LIBRARY_PATH=/Users/patrickferris/bin" ] else [] in 
+  let args = if running_as_root then args else "sudo" :: env @ args in
   exec ?stdin args
 
 let sudo_result ?cwd ?stdin ?stdout ?stderr ~pp args =
-  let args = if running_as_root then args else "sudo" :: args in
+  let args = if running_as_root then args else "sudo" :: "--preserve-env" :: args in
   exec_result ?cwd ?stdin ?stdout ?stderr ~pp args
 
 let rec write_all fd buf ofs len =

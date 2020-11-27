@@ -75,8 +75,8 @@ end = struct
 
   let path ?snapshot t ds =
     match snapshot with
-    | None -> strf "/%s/%s" t.pool ds
-    | Some snapshot -> strf "/%s/%s/.zfs/snapshot/%s" t.pool ds snapshot
+    | None -> strf "/Volumes/%s/%s" t.pool ds
+    | Some snapshot -> strf "/Volumes/%s/%s/.zfs/snapshot/%s" t.pool ds snapshot
 
   let exists ?snapshot t ds =
     match Os.check_dir (path ?snapshot t ds) with
@@ -120,6 +120,7 @@ module Zfs = struct
     Os.sudo ["zfs"; "clone"; "--"; Dataset.full_name t src ~snapshot; Dataset.full_name t dst]
 
   let snapshot t ds ~snapshot =
+    Log.info (fun f -> f "Snapshot for %s\n" snapshot);
     Os.sudo ["zfs"; "snapshot"; "--"; Dataset.full_name t ds ~snapshot]
 
   let promote t ds =
