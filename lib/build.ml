@@ -263,19 +263,24 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
     Lwt_result.return (id, env)
 
   let rec build ~scope t context { Obuilder_spec.child_builds; from = base; ops } =
-    let rec aux context = function
-      | [] -> Lwt_result.return context
-      | (name, child_spec) :: child_builds ->
-        context.Context.log `Heading Fmt.(strf "(build %S ...)" name);
-        build ~scope t context child_spec >>!= fun child_result ->
-        context.Context.log `Note Fmt.(strf "--> finished %S" name);
-        let context = Context.with_binding name child_result context in
-        aux context child_builds
-    in
-    aux context child_builds >>!= fun context ->
-    get_base t ~log:context.Context.log base >>!= fun (id, env) ->
-    let context = { context with env = context.env @ env } in
-    run_steps t ~context ~base:id ops
+  match fst base with 
+    | "docker" -> begin 
+      let rec aux context = function
+        | [] -> Lwt_result.return context
+        | (name, child_spec) :: child_builds ->
+          context.Context.log `Heading Fmt.(strf "(build %S ...)" name);
+          build ~scope t context child_spec >>!= fun child_result ->
+          context.Context.log `Note Fmt.(strf "--> finished %S" name);
+          let context = Context.with_binding name child_result context in
+          aux context child_builds
+      in
+      aux context child_builds >>!= fun context ->
+      get_base t ~log:context.Context.log (snd base) >>!= fun (id, env) ->
+      let context = { context with env = context.env @ env } in
+      run_steps t ~context ~base:id ops
+    end 
+      | "macos" -> Lwt.return (Ok "TODO: Implement")
+      | b -> Fmt.failwith "Unsupported build type: %s\n" b
 
   let build t context spec =
     let r = build ~scope:[] t context spec in

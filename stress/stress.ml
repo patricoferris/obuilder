@@ -133,7 +133,7 @@ module Test(Store : S.STORE) = struct
       |> fun got ->
       assert_str expected got
     in
-    check_log, Spec.stage ~from:"busybox" ops
+    check_log, Spec.stage ~from:("docker", "busybox") ops
 
   let do_build builder =
     let src_dir = "/root" in
