@@ -68,6 +68,7 @@ module type SANDBOX = sig
     cancelled:unit Lwt.t ->
     ?stdin:Os.unix_fd ->
     log:Build_log.t ->
+    hash:string -> 
     t ->
     Config.t ->
     string ->
@@ -77,6 +78,7 @@ module type SANDBOX = sig
       @param cancelled Resolving this kills the process (and returns [`Cancelled]).
       @param stdin Passed to child as its standard input.
       @param log Used for child's stdout and stderr.
+      @param hash The digest of the current run step. 
   *)
 end
 

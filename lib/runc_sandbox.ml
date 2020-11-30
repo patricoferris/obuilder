@@ -264,7 +264,7 @@ let copy_to_log ~src ~dst =
   in
   aux ()
 
-let run ~cancelled ?stdin:stdin ~log t config results_dir =
+let run ~cancelled ?stdin:stdin ~log ~hash:_ t config results_dir =
   Lwt_io.with_temp_dir ~prefix:"obuilder-runc-" @@ fun tmp ->
   let json_config = Json_config.make config ~config_dir:tmp ~results_dir t in
   Os.write_file ~path:(tmp / "config.json") (Yojson.Safe.pretty_to_string json_config ^ "\n") >>= fun () ->

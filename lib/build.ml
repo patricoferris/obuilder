@@ -83,7 +83,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
              let config = Config.v ~cwd:workdir ~argv ~hostname ~user ~env ~mounts ~network in
              Os.with_pipe_to_child @@ fun ~r:stdin ~w:close_me ->
              Lwt_unix.close close_me >>= fun () ->
-             Sandbox.run ~cancelled ~stdin ~log t.sandbox config result_tmp
+             Sandbox.run ~cancelled ~stdin ~log ~hash:id t.sandbox config result_tmp
           )
           (fun () ->
              !to_release |> Lwt_list.iter_s (fun f -> f ())
@@ -149,7 +149,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
               ~network:[]
           in
           Os.with_pipe_to_child @@ fun ~r:from_us ~w:to_untar ->
-          let proc = Sandbox.run ~cancelled ~stdin:from_us ~log t.sandbox config result_tmp in
+          let proc = Sandbox.run ~cancelled ~stdin:from_us ~log ~hash:id t.sandbox config result_tmp in
           let send =
             (* If the sending thread finishes (or fails), close the writing socket
                immediately so that the tar process finishes too. *)
@@ -262,25 +262,39 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
     let { Saved_context.env } = Saved_context.t_of_sexp (Sexplib.Sexp.load_sexp (path / "env")) in
     Lwt_result.return (id, env)
 
+let get_user t ~log sys_version =
+  log `Heading (Fmt.strf "SYS %s" sys_version);
+  let id = Sha256.to_hex (Sha256.string sys_version) in
+  Store.build t.store ~id ~log (fun ~cancelled:_ ~log:_ _ ->
+    let home = "/zfs" / id in 
+    Os.Macos.create_new_user ~prefix:"mac" ~home ~uid:"705" ~gid:"1000" >>= fun _ ->
+    Os.Macos.copy_brew_template ~lib:(home / "Library") ~local:(home / "local") >>= fun _ -> 
+    Lwt.return (Ok ())
+  )
+
   let rec build ~scope t context { Obuilder_spec.child_builds; from = base; ops } =
+    let rec aux context = function
+      | [] -> Lwt_result.return context
+      | (name, child_spec) :: child_builds ->
+        context.Context.log `Heading Fmt.(strf "(build %S ...)" name);
+        build ~scope t context child_spec >>!= fun child_result ->
+        context.Context.log `Note Fmt.(strf "--> finished %S" name);
+        let context = Context.with_binding name child_result context in
+        aux context child_builds
+    in
   match fst base with 
     | "docker" -> begin 
-      let rec aux context = function
-        | [] -> Lwt_result.return context
-        | (name, child_spec) :: child_builds ->
-          context.Context.log `Heading Fmt.(strf "(build %S ...)" name);
-          build ~scope t context child_spec >>!= fun child_result ->
-          context.Context.log `Note Fmt.(strf "--> finished %S" name);
-          let context = Context.with_binding name child_result context in
-          aux context child_builds
-      in
       aux context child_builds >>!= fun context ->
       get_base t ~log:context.Context.log (snd base) >>!= fun (id, env) ->
       let context = { context with env = context.env @ env } in
       run_steps t ~context ~base:id ops
-    end 
-      | "macos" -> Lwt.return (Ok "TODO: Implement")
-      | b -> Fmt.failwith "Unsupported build type: %s\n" b
+      end 
+    | "macos" -> 
+      aux context child_builds >>!= fun context ->
+      get_user t ~log:context.log (snd base) >>!= fun id -> 
+      let context = { context with env = context.env } in
+      run_steps t ~context ~base:id ops
+    | b -> Fmt.failwith "Unsupported build type: %s\n" b
 
   let build t context spec =
     let r = build ~scope:[] t context spec in
