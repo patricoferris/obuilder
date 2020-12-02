@@ -75,8 +75,8 @@ end = struct
 
   let path ?snapshot t ds =
     match snapshot with
-    | None -> strf "/%s/%s" t.pool ds
-    | Some snapshot -> strf "/%s/%s/.zfs/snapshot/%s" t.pool ds snapshot
+    | None -> strf "/Volumes/%s/%s" t.pool ds
+    | Some snapshot -> strf "/Volumes/%s/%s/.zfs/snapshot/%s" t.pool ds snapshot
 
   let exists ?snapshot t ds =
     match Os.check_dir (path ?snapshot t ds) with
@@ -88,12 +88,15 @@ end = struct
     else fn ()
 end
 
-let user = { Obuilder_spec.uid = Unix.getuid (); gid = Unix.getgid () }
+let user = { Obuilder_spec.uid = Unix.getuid (); gid = 1000 }
 
 module Zfs = struct
   let chown ~user t ds =
     let { Obuilder_spec.uid; gid } = user in
     Os.sudo ["chown"; strf "%d:%d" uid gid; Dataset.path t ds]
+
+  let chmod mode t ds =
+    Os.sudo ["chmod"; mode; Dataset.path t ds]
 
   let create t ds =
     Os.sudo ["zfs"; "create"; "--"; Dataset.full_name t ds]
@@ -173,7 +176,8 @@ let build t ?base ~id fn =
   begin match base with
     | None ->
       Zfs.create t ds >>= fun () ->
-      Zfs.chown ~user t ds
+      Zfs.chown ~user t ds >>= fun () -> 
+      Zfs.chmod "g+w" t ds 
     | Some base ->
       let src = Dataset.result base in
       Zfs.clone t ~src ~snapshot:default_snapshot ds
@@ -195,8 +199,7 @@ let build t ?base ~id fn =
     )
     (fun ex ->
         Log.warn (fun f -> f "Uncaught exception from %S build function: %a" id Fmt.exn ex);
-        Zfs.destroy t ds `Only >>= fun () ->
-        Lwt.fail ex
+        raise ex
     )
 
 let result t id =

@@ -12,12 +12,14 @@ type t = {
   mutable len : int;
 }
 
-let with_dup fd fn =
-  let fd = Lwt_unix.dup fd in
+let with_dup _fd _fn =
+  Log.info (fun f -> f "DUPPPING\n");
+  Lwt.return (Ok ())
+  (* let fd = Lwt_unix.dup fd in
   Lwt_unix.set_close_on_exec fd;
   Lwt.finalize
     (fun () -> fn fd)
-    (fun () -> Lwt_unix.close fd)
+    (fun () -> Lwt_unix.close fd) *)
 
 let catch_cancel fn =
   Lwt.catch fn

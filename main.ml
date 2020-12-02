@@ -10,7 +10,8 @@ module Store = Obuilder.Zfs_store
 let store = Lwt_main.run @@ Store.create ~pool:"tank"
 *)
 
-module Sandbox = Obuilder.Runc_sandbox
+module Runc = Obuilder.Runc_sandbox
+module Macos = Obuilder.Macos_sandbox
 
 type builder = Builder : (module Obuilder.BUILDER with type t = 'a) * 'a -> builder
 
@@ -18,18 +19,28 @@ let log tag msg =
   match tag with
   | `Heading -> Fmt.pr "%a@." Fmt.(styled (`Fg (`Hi `Blue)) string) msg
   | `Note -> Fmt.pr "%a@." Fmt.(styled (`Fg `Yellow) string) msg
-  | `Output -> output_string stdout msg; flush stdout
+  | `Output -> output_string stdout msg; flush stdout 
 
-let create_builder ?fast_sync spec =
+let create_runc ?fast_sync spec =
   Obuilder.Store_spec.to_store spec >>= fun (Store ((module Store), store)) -> 
-  let module Builder = Obuilder.Builder(Store)(Sandbox) in
-  Sandbox.create ~runc_state_dir:(Store.state_dir store / "runc") ?fast_sync () >|= fun sandbox ->
+  let module Builder = Obuilder.Builder(Store)(Runc) in
+  Runc.create ?fast_sync ~runc_state_dir:(Store.state_dir store / "runc") () >|= fun sandbox ->
   let builder = Builder.v ~store ~sandbox in
   Builder ((module Builder), builder)
 
-let build fast_sync store spec src_dir =
+let create_macos spec =
+  Obuilder.Store_spec.to_store spec >|= fun (Store ((module Store), store)) -> 
+  let module Builder = Obuilder.Builder(Store)(Macos) in
+  let sandbox = Macos.create ~uid:705 in
+  let builder = Builder.v ~store ~sandbox in
+  Builder ((module Builder), builder)
+
+let create_builder ?(macos=false) ?fast_sync spec =
+  if macos then create_macos spec else create_runc ?fast_sync spec
+
+let build store spec src_dir macos =
   Lwt_main.run begin
-    create_builder ~fast_sync store >>= fun (Builder ((module Builder), builder)) ->
+    create_builder ~macos store >>= fun (Builder ((module Builder), builder)) ->
     let spec =
       try Obuilder.Spec.t_of_sexp (Sexplib.Sexp.load_sexp spec)
       with Failure msg ->
@@ -103,6 +114,14 @@ let store =
     ~docv:"STORE"
     ["store"]
 
+let macos = 
+  Arg.value @@ 
+  Arg.flag @@ 
+  Arg.info 
+    ~doc:"Change sandboxing environment to macos, by default it is runc"
+    ~docv:"MACOS"
+    ["macos"]
+
 let id =
   Arg.required @@
   Arg.pos 0 Arg.(some string) None @@
@@ -111,16 +130,9 @@ let id =
     ~docv:"ID"
     []
 
-let fast_sync =
-  Arg.value @@
-  Arg.flag @@
-  Arg.info
-    ~doc:"Ignore sync syscalls (requires runc >= 1.0.0-rc92)"
-    ["fast-sync"]
-
 let build =
   let doc = "Build a spec file." in
-  Term.(const build $ fast_sync $ store $ spec_file $ src_dir),
+  Term.(const build $ store $ spec_file $ src_dir $ macos),
   Term.info "build" ~doc
 
 let delete =
@@ -147,6 +159,13 @@ let verbose =
     ~doc:"Enable verbose logging"
     ["verbose"]
 
+let fast_sync =
+  Arg.value @@
+  Arg.flag @@
+  Arg.info
+    ~doc:"Ignore sync syscalls (requires runc >= 1.0.0-rc92)"
+    ["fast-sync"]
+
 let healthcheck =
   let doc = "Perform a self-test" in
   Term.(const healthcheck $ fast_sync $ verbose $ store),
@@ -162,6 +181,6 @@ let default_cmd =
 let term_exit (x : unit Term.result) = Term.exit x
 
 let () =
-  (* Logs.(set_level (Some Info)); *)
+  Logs.(set_level (Some Debug));
   Fmt_tty.setup_std_outputs ();
   term_exit @@ Term.eval_choice default_cmd cmds

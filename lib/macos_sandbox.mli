@@ -58,3 +58,5 @@
    (2) We only support relocatable packages, sorry.
 *)
 include S.SANDBOX
+
+val create : uid:int -> t 

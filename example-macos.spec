@@ -6,4 +6,6 @@
 ;
 ; The result can then be found in /tank/HASH/rootfs/ (where HASH is displayed at the end of the build).
 
-((from macos 4.11))
+((from ("macos" "4.11.0"))
+ (env PATH "/Users/patrickferris/ocaml/4.11.0/bin")
+ (run (shell "env")))

@@ -56,6 +56,13 @@ let default_exec ?cwd ?stdin ?stdout ?stderr ~pp argv =
   | Unix.WSIGNALED x -> Fmt.error_msg "%t failed with signal %d" pp x
   | Unix.WSTOPPED x -> Fmt.error_msg "%t stopped with signal %a" pp pp_signal x
 
+let convert_env env = 
+  let rec aux acc = function 
+    | []  -> List.rev acc 
+    | (k, v)::xs -> aux ((k ^ "=" ^ v) :: acc) xs 
+  in 
+    aux [] env |> Array.of_list
+
 (* Overridden in unit-tests *)
 let lwt_process_exec = ref default_exec
 
@@ -77,7 +84,8 @@ let exec ?cwd ?stdin ?stdout ?stderr argv =
 let running_as_root = Unix.getuid () = 0
 
 let sudo ?stdin args =
-  let args = if running_as_root then args else "sudo" :: args in
+  let env = if List.hd args = "zfs" then [ "DYLD_LIBRARY_PATH=/Users/patrickferris/bin" ] else [] in 
+  let args = if running_as_root then args else "sudo" :: env @ args in
   exec ?stdin args
 
 let sudo_result ?cwd ?stdin ?stdout ?stderr ~pp args =
@@ -157,10 +165,11 @@ let ensure_dir path =
   | `Missing -> Unix.mkdir path 0o777
 
 module Macos = struct 
+  let ( / ) = Filename.concat  
 
   (* Generates a new MacOS user called `<prefix><uid>' *)
   let create_new_user ~prefix ~home ~uid ~gid = 
-    let user = prefix ^ uid in  
+    let user = "/Users" / (prefix ^ uid) in  
     let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
     let dscl = ["dscl"; "."; "-create"; user ] in 
       sudo_result ~pp:(pp "UniqueID") (dscl @ ["UniqueID"; uid]) >>!= fun _ ->
@@ -169,15 +178,20 @@ module Macos = struct
       sudo_result ~pp:(pp "NFSHomeDirectory") (dscl @ ["NFSHomeDirectory"; home]) >>!= fun _ -> 
       sudo_result ~pp:(pp "passwd") (dscl @ ["-passwd"; user; "hello"])
 
-  let copy_brew_template ~lib ~local = 
+  let delete_user ~user = 
+    let user = "/Users" / user in 
     let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
-    sudo_result ~pp:(pp "Rsync Brew") ["rsync"; "-av"; "/Users/template/local"; local] >>= fun _ ->
-    sudo_result ~pp:(pp "Rsync Brew") ["rsync"; "-av"; "/Users/template/Library"; lib]
+    let delete = ["dscl"; "."; "-delete"; user ] in 
+      sudo_result ~pp:(pp "Deleting") delete
+
+  let copy_brew_template ~lib:_ ~local = 
+    let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
+    sudo_result ~pp:(pp "Rsync Brew") ["rsync"; "-av"; "/Users/mac701/local"; local]
 
   let change_home_directory_for ~user ~homedir = 
-    ["sudo"; "dscl"; "."; "-create"; "/Users/" ^ user ; "NFSHomeDirectory"; homedir ]
+    ["dscl"; "."; "-create"; "/Users/" ^ user ; "NFSHomeDirectory"; homedir ]
 
   (* Used by the FUSE filesystem to indicate where a users home directory should be ...*)
   let update_scoreboard ~uid ~homedir = 
-    ["ln"; "-s"; "/data/scoreboard/" ^ string_of_int uid; homedir]
+    ["ln"; "-fs"; homedir; "/Users/patrickferris/scoreboard/" ^ string_of_int uid]
 end 
