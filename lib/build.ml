@@ -262,7 +262,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
     let { Saved_context.env } = Saved_context.t_of_sexp (Sexplib.Sexp.load_sexp (path / "env")) in
     Lwt_result.return (id, env)
 
-let get_user t ~log sys_version =
+ let get_user t ~log sys_version =
   log `Heading (Fmt.strf "SYS %s" sys_version);
   let id = Sha256.to_hex (Sha256.string sys_version) in
   Store.build t.store ~id ~log (fun ~cancelled:_ ~log:_ _ ->

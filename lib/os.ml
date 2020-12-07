@@ -84,7 +84,7 @@ let exec ?cwd ?stdin ?stdout ?stderr argv =
 let running_as_root = Unix.getuid () = 0
 
 let sudo ?stdin args =
-  let env = if List.hd args = "zfs" then [ "DYLD_LIBRARY_PATH=/Users/patrickferris/bin" ] else [] in 
+  let env = if List.hd args = "zfs" then [ "DYLD_FALLBACK_LIBRARY_PATH=/Users/patrickferris/bin" ] else [] in 
   let args = if running_as_root then args else "sudo" :: env @ args in
   exec ?stdin args
 
@@ -176,7 +176,7 @@ module Macos = struct
       sudo_result ~pp:(pp "PrimaryGroupID") (dscl @ ["PrimaryGroupID"; gid]) >>!= fun _ ->
       sudo_result ~pp:(pp "UserShell") (dscl @ ["UserShell"; "/bin/bash"]) >>!= fun _ -> 
       sudo_result ~pp:(pp "NFSHomeDirectory") (dscl @ ["NFSHomeDirectory"; home]) >>!= fun _ -> 
-      sudo_result ~pp:(pp "passwd") (dscl @ ["-passwd"; user; "hello"])
+      sudo (dscl @ ["-passwd"; user; "hello"]) >>= fun _ -> Lwt.return_ok ()
 
   let delete_user ~user = 
     let user = "/Users" / user in 
@@ -186,7 +186,9 @@ module Macos = struct
 
   let copy_brew_template ~lib:_ ~local = 
     let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
-    sudo_result ~pp:(pp "Rsync Brew") ["rsync"; "-av"; "/Users/mac701/local"; local]
+    sudo_result ~pp:(pp "Rsync Brew") ["rsync"; "-avq"; "/Users/mac701/local"; local] >>!= fun _ -> 
+    sudo_result ~pp:(pp "Make tmpdir") ["mkdir"; "-m"; "775"; local / "tmp"] >>!= fun _ -> 
+    sudo_result ~pp:(pp "Bash Profile") ["cp"; "/Users/mac701/.bash_profile"; local]
 
   let change_home_directory_for ~user ~homedir = 
     ["dscl"; "."; "-create"; "/Users/" ^ user ; "NFSHomeDirectory"; homedir ]
