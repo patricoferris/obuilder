@@ -8,6 +8,12 @@ type t = {
   arches : string list;
 }
 
+module Saved_context = struct
+  type t = {
+    env : Os.env;
+  } [@@deriving sexp]
+end
+
 let get_machine () =
   let ch = Unix.open_process_in "uname -m" in
   let arch = input_line ch in
@@ -264,7 +270,53 @@ let copy_to_log ~src ~dst =
   in
   aux ()
 
-let run ~cancelled ?stdin:stdin ~log ~hash:_ t config results_dir =
+let with_container ~log base fn =
+  Os.with_pipe_from_child (fun ~r ~w ->
+      (* We might need to do a pull here, so log the output to show progress. *)
+      let copy = copy_to_log ~src:r ~dst:log in
+      Os.pread ~stderr:(`FD_move_safely w) ["docker"; "create"; "--"; base] >>= fun cid ->
+      copy >|= fun () ->
+      String.trim cid
+    ) >>= fun cid ->
+  Lwt.finalize
+    (fun () -> fn cid)
+    (fun () -> Os.exec ["docker"; "rm"; "--"; cid])
+
+let export_env base : Os.env Lwt.t =
+  Os.pread ["docker"; "image"; "inspect";
+            "--format"; {|{{range .Config.Env}}{{print . "\x00"}}{{end}}|};
+            "--"; base] >|= fun env ->
+  String.split_on_char '\x00' env
+  |> List.filter_map (function
+      | "\n" -> None
+      | kv ->
+        match Astring.String.cut ~sep:"=" kv with
+        | None -> Fmt.failwith "Invalid environment in Docker image %S (should be 'K=V')" kv
+        | Some _ as pair -> pair
+)
+
+let from ~log ~from_stage _t =
+  let base = snd from_stage in 
+  log `Heading (Fmt.strf "(from %a)" Sexplib.Sexp.pp_hum (Atom base));
+  (fun ~cancelled:_ ~log tmp ->
+      Log.info (fun f -> f "Base image not present; importing %S...@." base);
+      let rootfs = tmp / "rootfs" in
+      Os.sudo ["mkdir"; "--mode=755"; "--"; rootfs] >>= fun () ->
+      (* Lwt_process.exec ("", [| "docker"; "pull"; "--"; base |]) >>= fun _ -> *)
+      with_container ~log base (fun cid ->
+          Os.with_pipe_between_children @@ fun ~r ~w ->
+          let exporter = Os.exec ~stdout:(`FD_move_safely w) ["docker"; "export"; "--"; cid] in
+          let tar = Os.sudo ~stdin:(`FD_move_safely r) ["tar"; "-C"; rootfs; "-xf"; "-"] in
+          exporter >>= fun () ->
+          tar
+        ) >>= fun () ->
+      export_env base >>= fun env ->
+      Os.write_file ~path:(tmp / "env")
+        (Sexplib.Sexp.to_string_hum Saved_context.(sexp_of_t {env})) >>= fun () ->
+      Lwt_result.return ()
+    )
+
+let run ~cancelled ?stdin:stdin ~log t config results_dir =
   Lwt_io.with_temp_dir ~prefix:"obuilder-runc-" @@ fun tmp ->
   let json_config = Json_config.make config ~config_dir:tmp ~results_dir t in
   Os.write_file ~path:(tmp / "config.json") (Yojson.Safe.pretty_to_string json_config ^ "\n") >>= fun () ->

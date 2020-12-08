@@ -32,6 +32,7 @@ type cache = {
 
 type t = {
   pool : string;
+  prefix: string;
   caches : (string, cache) Hashtbl.t;
   mutable next : int;
 }
@@ -75,8 +76,8 @@ end = struct
 
   let path ?snapshot t ds =
     match snapshot with
-    | None -> strf "/Volumes/%s/%s" t.pool ds
-    | Some snapshot -> strf "/Volumes/%s/%s/.zfs/snapshot/%s" t.pool ds snapshot
+    | None -> strf "%s/%s/%s" t.prefix t.pool ds
+    | Some snapshot -> strf "%s/%s/%s/.zfs/snapshot/%s" t.prefix t.pool ds snapshot
 
   let exists ?snapshot t ds =
     match Os.check_dir (path ?snapshot t ds) with
@@ -88,7 +89,7 @@ end = struct
     else fn ()
 end
 
-let user = { Obuilder_spec.uid = Unix.getuid (); gid = 1000 }
+let user = { Obuilder_spec.uid = Unix.getuid (); gid = Unix.getgid () }
 
 module Zfs = struct
   let chown ~user t ds =
@@ -143,8 +144,9 @@ let delete_if_exists t ds mode =
 
 let state_dir t = Dataset.path t Dataset.state
 
-let create ~pool =
-  let t = { pool; caches = Hashtbl.create 10; next = 0 } in
+let create ~prefix ~pool = 
+  let prefix = match prefix with Some p -> "/" ^ p | None -> "/" in 
+  let t = { pool; prefix; caches = Hashtbl.create 10; next = 0 } in
   (* Ensure any left-over temporary datasets are removed before we start. *)
   delete_if_exists t (Dataset.cache_tmp_group) `And_snapshots_and_clones >>= fun () ->
   Dataset.groups |> Lwt_list.iter_s (fun group ->

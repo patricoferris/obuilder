@@ -64,11 +64,23 @@ end
 module type SANDBOX = sig
   type t
 
+  val from : 
+    log:logger -> 
+    from_stage:(string * string) ->
+    t -> 
+    cancelled:unit Lwt.t ->
+    log:Build_log.t ->
+    string -> (unit, [ `Cancelled | `Msg of string ]) result Lwt.t
+  (** [from t ~log ~from_stage] generates the function to be run as the initial build-step 
+      for the sandboxing environment using Obuilder's from stage. 
+      @param log Used for writing logs
+      @param from_stage The two parts (e.g. Docker, <hash>) of an OBuilder from stage.
+  *)
+
   val run :
     cancelled:unit Lwt.t ->
     ?stdin:Os.unix_fd ->
     log:Build_log.t ->
-    hash:string -> 
     t ->
     Config.t ->
     string ->
@@ -78,7 +90,6 @@ module type SANDBOX = sig
       @param cancelled Resolving this kills the process (and returns [`Cancelled]).
       @param stdin Passed to child as its standard input.
       @param log Used for child's stdout and stderr.
-      @param hash The digest of the current run step. 
   *)
 end
 

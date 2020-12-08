@@ -56,13 +56,6 @@ let default_exec ?cwd ?stdin ?stdout ?stderr ~pp argv =
   | Unix.WSIGNALED x -> Fmt.error_msg "%t failed with signal %d" pp x
   | Unix.WSTOPPED x -> Fmt.error_msg "%t stopped with signal %a" pp pp_signal x
 
-let convert_env env = 
-  let rec aux acc = function 
-    | []  -> List.rev acc 
-    | (k, v)::xs -> aux ((k ^ "=" ^ v) :: acc) xs 
-  in 
-    aux [] env |> Array.of_list
-
 (* Overridden in unit-tests *)
 let lwt_process_exec = ref default_exec
 

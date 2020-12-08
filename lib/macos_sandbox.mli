@@ -59,4 +59,12 @@
 *)
 include S.SANDBOX
 
-val create : uid:int -> t 
+val create : 
+  uid:int -> 
+  fallback_library_path:string -> 
+  t 
+(** [create ~uid ~system_compiler_path ~fallback_library_path] generates a new 
+    Macos configuration which will build inside a user "mac<uid>" and the dynamic 
+    libraries for zfs/zpool must also be in [fallback_library_path] as usually 
+    they are in /usr/local which won't be available (see note above).
+*)
