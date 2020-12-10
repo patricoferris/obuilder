@@ -30,9 +30,9 @@ let runc fast_sync store spec src_dir =
       exit 1
   end
 
-let macos store spec src_dir uid fallback_library_path =
+let macos store spec src_dir uid fallback_library_path scoreboard =
   Lwt_main.run begin
-    Macos.create_builder ~spec:store ~uid ~fallback_library_path >>= fun (Builder ((module Builder), builder)) ->
+    Macos.create_builder ~spec:store ~uid ~fallback_library_path ~scoreboard >>= fun (Builder ((module Builder), builder)) ->
     let spec = Obuilder.Spec.t_of_sexp (Sexplib.Sexp.load_sexp spec) in
     let context = Obuilder.Context.v ~log ~src_dir () in
     Builder.build builder context spec >>= function
@@ -97,7 +97,7 @@ let runc =
 
 let macos =
   let doc = "Build a spec file using the macos setup." in
-  Term.(const macos $ Common.store $ Common.spec_file $ src_dir $ Macos.uid $ Macos.fallback_library_path),
+  Term.(const macos $ Common.store $ Common.spec_file $ src_dir $ Macos.uid $ Macos.fallback_library_path $ Macos.scoreboard),
   Term.info "macos" ~doc
 
 let delete =

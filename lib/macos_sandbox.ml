@@ -6,12 +6,15 @@ type t = {
   (* Where zfs dynamic libraries are -- can't be in /usr/local/lib 
      see notes in .mli file under "Various Gotchas"... *)
   fallback_library_path : string;
+  (* Scoreboard -- where we keep our symlinks for knowing homedirs for users *)
+  scoreboard : string;
 }
 
-let create ~uid ~fallback_library_path = { 
+let create ~uid ~fallback_library_path ~scoreboard = { 
   uid; 
   gid = 1000; 
   fallback_library_path;
+  scoreboard;
 }
 
 let ( / ) = Filename.concat 
@@ -80,7 +83,7 @@ let run ~cancelled ?stdin:stdin ~log t config homedir =
   let switch_prefix = ("OPAM_SWITCH_PREFIX", homedir / ".opam" / "default") in 
   let bin_prefix = ("PATH", homedir / ".opam" / "default" / "bin" ^ ":$PATH") in 
   let env = convert_env (("HOME", homedir) (* :: ("TMPDIR", homedir / "tmp") *) :: bin_prefix :: [ switch_prefix ]) in 
-  let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir in 
+  let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir ~scoreboard:t.scoreboard in 
   let cmd = run_as ~env ~cwd:config.Config.cwd ~user:("mac" ^ string_of_int t.uid) ~cmd:config.Config.argv in
   let stdout = `FD_move_safely out_w in
   let stderr = stdout in

@@ -2,10 +2,10 @@ open Lwt
 
 module Macos = Obuilder.Macos_sandbox
 
-let create_builder ~spec ~uid ~fallback_library_path =
+let create_builder ~spec ~uid ~fallback_library_path ~scoreboard =
   Obuilder.Store_spec.to_store spec >|= fun (Store ((module Store), store)) -> 
   let module Builder = Obuilder.Builder(Store)(Macos) in
-  let sandbox = Macos.create ~uid ~fallback_library_path in
+  let sandbox = Macos.create ~uid ~fallback_library_path ~scoreboard in
   let builder = Builder.v ~store ~sandbox in
   Common.Builder ((module Builder), builder)
 
@@ -26,4 +26,12 @@ let fallback_library_path =
     ~doc:"The fallback path of the dynamic libraries"
     ~docv:"FALLBACK"
     ["fallback"]
+
+let scoreboard =
+  Arg.required @@
+  Arg.opt Arg.(some file) None @@
+  Arg.info
+    ~doc:"The scoreboard directory for user/homdir symlinks"
+    ~docv:"SCOREBOARD"
+    ["scoreboard"]
 

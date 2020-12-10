@@ -62,9 +62,12 @@ include S.SANDBOX
 val create : 
   uid:int -> 
   fallback_library_path:string -> 
+  scoreboard:string ->
   t 
-(** [create ~uid ~system_compiler_path ~fallback_library_path] generates a new 
+(** [create ~uid ~fallback_library_path ~scoreboard] generates a new 
     Macos configuration which will build inside a user "mac<uid>" and the dynamic 
     libraries for zfs/zpool must also be in [fallback_library_path] as usually 
-    they are in /usr/local which won't be available (see note above).
+    they are in /usr/local which won't be available (see note above). The [scoreboard]
+    will be the location symlinks are created letting you know the home directory 
+    of different users.
 *)

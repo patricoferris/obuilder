@@ -187,6 +187,6 @@ module Macos = struct
     ["dscl"; "."; "-create"; "/Users/" ^ user ; "NFSHomeDirectory"; homedir ]
 
   (* Used by the FUSE filesystem to indicate where a users home directory should be ...*)
-  let update_scoreboard ~uid ~homedir = 
-    ["ln"; "-fs"; homedir; "/Users/patrickferris/scoreboard/" ^ string_of_int uid]
+  let update_scoreboard ~uid ~scoreboard ~homedir = 
+    ["ln"; "-fs"; homedir; scoreboard ^ "/" ^ string_of_int uid]
 end 
