@@ -38,4 +38,11 @@
   astring
   ppx_deriving
   ppx_sexp_conv
-  (ocaml (>= 4.10.0))))
+  (ocaml (>= 4.10.0))
+))
+
+(package
+ (name obuilder-mac)
+ (synopsis "For building on MacOS")
+ (description "A library for constructing, reading and writing OBuilder build specification files.")
+)

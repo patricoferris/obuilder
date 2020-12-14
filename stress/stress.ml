@@ -102,9 +102,7 @@ module Test(Store : S.STORE) = struct
       assert (x = Ok ());
       Lwt.return_unit
 
-  module Sandbox = Runc_sandbox
   module Build = Builder(Store)(Sandbox)
-
   let n_steps = 4
   let n_values = 3
   let n_jobs = 100
@@ -154,8 +152,8 @@ module Test(Store : S.STORE) = struct
     | Error (`Msg m) -> failwith m
     | Error `Cancelled -> assert false
 
-  let stress_builds store =
-    Sandbox.create ~runc_state_dir:(Store.state_dir store / "runc") ~fast_sync:true () >>= fun sandbox ->
+  let stress_builds store config =
+    let sandbox = Sandbox.create config in
     let builder = Build.v ~store ~sandbox in
     let pending = ref n_jobs in
     let running = ref 0 in
@@ -192,9 +190,10 @@ module Test(Store : S.STORE) = struct
       time (float n_jobs /. time);
     if !failures > 0 then Fmt.failwith "%d failures!" !failures
     else Lwt.return_unit
-
-  let prune store =
-    Sandbox.create ~runc_state_dir:(Store.state_dir store / "runc") () >>= fun sandbox ->
+    
+    (* ~runc_state_dir:(Store.state_dir store / "runc") *)
+  let prune store config =
+    let sandbox = Sandbox.create config in
     let builder = Build.v ~store ~sandbox in
     let log id = Logs.info (fun f -> f "Deleting %S" id) in
     let end_time = Unix.(gettimeofday () +. 60.0 |> gmtime) in
@@ -207,14 +206,14 @@ module Test(Store : S.STORE) = struct
     aux ()
 end
 
-let stress spec =
+let stress spec config =
   Lwt_main.run begin
     Store_spec.to_store spec >>= fun (Store ((module Store), store)) ->
     let module T = Test(Store) in
     T.test_store store >>= fun () ->
     T.test_cache store >>= fun () ->
-    T.stress_builds store >>= fun () ->
-    T.prune store
+    T.stress_builds store config >>= fun () ->
+    T.prune store config
   end
 
 open Cmdliner
@@ -234,7 +233,7 @@ let store =
 
 let cmd =
   let doc = "Run stress tests." in
-  Term.(const stress $ store),
+  Term.(const stress $ store $ Sandbox.cmdliner),
   Term.info "stress" ~doc
 
 let () =

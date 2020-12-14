@@ -64,6 +64,9 @@ end
 module type SANDBOX = sig
   type t
 
+  val version : string
+  (** The type of sandboxing environment *)
+
   val from : 
     log:logger -> 
     from_stage:(string * string) ->

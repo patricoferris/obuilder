@@ -1,0 +1,5 @@
+(library
+ (name obuilder_mac)
+ (public_name obuilder-mac)
+ (enabled_if (= %{system} macosx))
+ (modules_without_implementation macos_sandbox))

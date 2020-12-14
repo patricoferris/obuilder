@@ -1,4 +1,5 @@
 open Lwt.Infix 
+open Cmdliner 
 
 type t = {
   uid: int;
@@ -10,12 +11,16 @@ type t = {
   scoreboard : string;
 }
 
-let create ~uid ~fallback_library_path ~scoreboard = { 
-  uid; 
-  gid = 1000; 
-  fallback_library_path;
-  scoreboard;
-}
+open Sexplib.Conv
+
+type config = { 
+  uid: int;
+  fallback_library_path : string;
+  scoreboard : string;
+}[@@deriving sexp]
+
+let version = "macos-sandboxing"
+
 
 let ( / ) = Filename.concat 
 
@@ -45,15 +50,15 @@ let copy_to_log ~src ~dst =
   in
   aux ()
 
-let from ~log ~from_stage t =
+let from ~log ~from_stage (t : t) =
   log `Heading (Fmt.strf "SYS %s" (snd from_stage));
   let id = Sha256.to_hex (Sha256.string (snd from_stage)) in
   let home = "/Volumes/tank/result" / id in 
-  fun ~cancelled:_ ~log:_ _ ->
+  fun ~cancelled:_ ~log:_ (_ : string) ->
     Os.Macos.create_new_user ~prefix:"mac" ~home ~uid:(string_of_int t.uid) ~gid:"1000" >>= fun _ ->
     Os.Macos.copy_brew_template ~lib:home ~local:home >>= fun _ -> 
     Os.sudo [ "chown"; "-R"; ":1000"; home ] >>= fun () -> 
-    Lwt.return (Ok ())
+    Lwt.return (Ok () :> (unit, [ `Cancelled | `Msg of string ]) result)
 
 (* XXX Patricoferris: there must be a better way to deal with this! *)
 let convert_env env = 
@@ -77,7 +82,7 @@ let convert_env env =
    - Umask g+w to work across users if restored from a snapshot
    - Set the new home directory of the user, to the new hash
    - Should be executed by the underlying user (t.uid) *)
-let run ~cancelled ?stdin:stdin ~log t config homedir =
+let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
   Os.with_pipe_from_child @@ fun ~r:out_r ~w:out_w ->
   let set_homedir = Os.Macos.change_home_directory_for ~user:("mac" ^ string_of_int t.uid) ~homedir in 
   let switch_prefix = ("OPAM_SWITCH_PREFIX", homedir / ".opam" / "default") in 
@@ -116,3 +121,43 @@ let run ~cancelled ?stdin:stdin ~log t config homedir =
   copy_log >>= fun () ->
   if Lwt.is_sleeping cancelled then Lwt.return (r :> (unit, [`Msg of string | `Cancelled]) result)
   else Lwt_result.fail `Cancelled
+
+
+
+let create ?state_dir:_ c = 
+  {
+    uid = c.uid;
+    gid = 1000;
+    fallback_library_path = c.fallback_library_path;
+    scoreboard = c.scoreboard;
+  }
+
+let uid =
+  Arg.required @@
+  Arg.opt Arg.(some int) None @@
+  Arg.info
+    ~doc:"The uid of the user that will be used to build things"
+    ~docv:"UID"
+    ["uid"]
+  
+let fallback_library_path =
+  Arg.required @@
+  Arg.opt Arg.(some file) None @@
+  Arg.info
+    ~doc:"The fallback path of the dynamic libraries"
+    ~docv:"FALLBACK"
+    ["fallback"]
+
+let scoreboard =
+  Arg.required @@
+  Arg.opt Arg.(some file) None @@
+  Arg.info
+    ~doc:"The scoreboard directory for user/homdir symlinks"
+    ~docv:"SCOREBOARD"
+    ["scoreboard"]
+
+let cmdliner : config Term.t = 
+  let make uid fallback_library_path scoreboard = 
+    {uid; fallback_library_path; scoreboard}
+  in
+  Term.(const make $ uid $ fallback_library_path $ scoreboard)

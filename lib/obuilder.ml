@@ -12,8 +12,7 @@ module Zfs_store = Zfs_store
 module Db = Db
 module Os = Os
 
-module Runc_sandbox = Runc_sandbox
-module Macos_sandbox = Macos_sandbox
+module Sandbox = Sandbox 
 module Store_spec = Store_spec
 
 let log_src = Log.src

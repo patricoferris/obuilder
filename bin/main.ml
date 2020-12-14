@@ -5,17 +5,31 @@ let () =
 
 let ( / ) = Filename.concat
 
+(*
+module Store = Obuilder.Zfs_store
+let store = Lwt_main.run @@ Store.create ~pool:"tank"
+*)
+
+module Sandbox = Obuilder.Sandbox
+
 type builder = Builder : (module Obuilder.BUILDER with type t = 'a) * 'a -> builder
 
 let log tag msg =
   match tag with
   | `Heading -> Fmt.pr "%a@." Fmt.(styled (`Fg (`Hi `Blue)) string) msg
   | `Note -> Fmt.pr "%a@." Fmt.(styled (`Fg `Yellow) string) msg
-  | `Output -> output_string stdout msg; flush stdout 
+  | `Output -> output_string stdout msg; flush stdout
 
-let runc fast_sync store spec src_dir =
+let create_builder config spec =
+  Obuilder.Store_spec.to_store spec >|= fun (Store ((module Store), store)) -> 
+  let module Builder = Obuilder.Builder(Store)(Sandbox) in
+  let sandbox = Sandbox.create config in
+  let builder = Builder.v ~store ~sandbox in
+  Builder ((module Builder), builder)
+
+let build store spec src_dir config =
   Lwt_main.run begin
-    Linux.create_builder ~fast_sync ~spec:store () >>= fun (Builder ((module Builder), builder)) ->
+    create_builder config store >>= fun (Builder ((module Builder), builder)) ->
     let spec = Obuilder.Spec.t_of_sexp (Sexplib.Sexp.load_sexp spec) in
     let context = Obuilder.Context.v ~log ~src_dir () in
     Builder.build builder context spec >>= function
@@ -30,28 +44,11 @@ let runc fast_sync store spec src_dir =
       exit 1
   end
 
-let macos store spec src_dir uid fallback_library_path scoreboard =
-  Lwt_main.run begin
-    Macos.create_builder ~spec:store ~uid ~fallback_library_path ~scoreboard >>= fun (Builder ((module Builder), builder)) ->
-    let spec = Obuilder.Spec.t_of_sexp (Sexplib.Sexp.load_sexp spec) in
-    let context = Obuilder.Context.v ~log ~src_dir () in
-    Builder.build builder context spec >>= function
-    | Ok x ->
-      Fmt.pr "Got: %S@." (x :> string);
-      Lwt.return_unit
-    | Error `Cancelled ->
-      Fmt.epr "Cancelled at user's request@.";
-      exit 1
-    | Error (`Msg m) ->
-      Fmt.epr "Build step failed: %s@." m;
-      exit 1
-  end
-
-let healthcheck fast_sync verbose store =
+let healthcheck conf verbose store =
   if verbose then
     Logs.Src.set_level Obuilder.log_src (Some Logs.Info);
   Lwt_main.run begin
-    Linux.create_builder ?fast_sync ~spec:store () >>= fun (Builder ((module Builder), builder)) ->
+    create_builder conf store >>= fun (Builder ((module Builder), builder)) ->
     Builder.healthcheck builder >|= function
     | Error (`Msg m) ->
       Fmt.epr "Healthcheck failed: %s@." m;
@@ -60,9 +57,9 @@ let healthcheck fast_sync verbose store =
       Fmt.pr "Healthcheck passed@."
   end
 
-let delete store id =
+let delete store conf id =
   Lwt_main.run begin
-    Linux.create_builder ~spec:store () >>= fun (Builder ((module Builder), builder)) ->
+    create_builder conf store >>= fun (Builder ((module Builder), builder)) ->
     Builder.delete builder id ~log:(fun id -> Fmt.pr "Removing %s@." id)
   end
 
@@ -74,6 +71,14 @@ let dockerfile buildkit spec =
 
 open Cmdliner
 
+let spec_file =
+  Arg.required @@
+  Arg.opt Arg.(some file) None @@
+  Arg.info
+    ~doc:"Path of build spec file"
+    ~docv:"FILE"
+    ["f"]
+
 let src_dir =
   Arg.required @@
   Arg.pos 0 Arg.(some dir) None @@
@@ -81,6 +86,17 @@ let src_dir =
     ~doc:"Directory containing the source files"
     ~docv:"DIR"
     []
+
+let store_t =
+  Arg.conv Obuilder.Store_spec.(of_string, pp)
+
+let store =
+  Arg.required @@
+  Arg.opt Arg.(some store_t) None @@
+  Arg.info
+    ~doc:"zfs:pool or btrfs:/path for build cache"
+    ~docv:"STORE"
+    ["store"]
 
 let id =
   Arg.required @@
@@ -90,19 +106,14 @@ let id =
     ~docv:"ID"
     []
 
-let runc =
-  let doc = "Build a spec file using runc." in
-  Term.(const runc $ Linux.fast_sync $ Common.store $ Common.spec_file $ src_dir),
-  Term.info "runc" ~doc
-
-let macos =
-  let doc = "Build a spec file using the macos setup." in
-  Term.(const macos $ Common.store $ Common.spec_file $ src_dir $ Macos.uid $ Macos.fallback_library_path $ Macos.scoreboard),
-  Term.info "macos" ~doc
+let build =
+  let doc = "Build a spec file." in
+  Term.(const build $ store $ spec_file $ src_dir $ Sandbox.cmdliner),
+  Term.info "build" ~doc
 
 let delete =
   let doc = "Recursively delete a cached build result." in
-  Term.(const delete $ Common.store $ id),
+  Term.(const delete $ store $ Sandbox.cmdliner $ id),
   Term.info "delete" ~doc
 
 let buildkit =
@@ -114,10 +125,27 @@ let buildkit =
 
 let dockerfile =
   let doc = "Convert a spec to Dockerfile format" in
-  Term.(const dockerfile $ buildkit $ Common.spec_file),
+  Term.(const dockerfile $ buildkit $ spec_file),
   Term.info "dockerfile" ~doc
 
-let cmds = [runc; macos; delete; dockerfile]
+let version = 
+  let print () = Format.printf "%s\n" Sandbox.version in 
+  let doc = "Print the type of sandboxing environment being used" in 
+  Term.(const print $ pure ()), Term.info "version" ~doc
+
+let verbose =
+  Arg.value @@
+  Arg.flag @@
+  Arg.info
+    ~doc:"Enable verbose logging"
+    ["verbose"]
+
+let healthcheck =
+  let doc = "Perform a self-test" in
+  Term.(const healthcheck $ Sandbox.cmdliner $ verbose $ store),
+  Term.info "healthcheck" ~doc
+
+let cmds = [build; delete; dockerfile; version]
 
 let default_cmd =
   let doc = "a command-line interface for OBuilder" in
@@ -127,6 +155,6 @@ let default_cmd =
 let term_exit (x : unit Term.result) = Term.exit x
 
 let () =
-  Logs.(set_level (Some Debug));
+  (* Logs.(set_level (Some Info)); *)
   Fmt_tty.setup_std_outputs ();
   term_exit @@ Term.eval_choice default_cmd cmds

@@ -8,6 +8,8 @@ type t = {
   arches : string list;
 }
 
+let version = "runc-sandboxing"
+
 module Saved_context = struct
   type t = {
     env : Os.env;
@@ -366,3 +368,33 @@ let create ?(fast_sync=false) ~runc_state_dir () =
   Log.info (fun f -> f "Architectures for multi-arch system: %a" Fmt.(Dump.list string) arches);
   clean_runc runc_state_dir >|= fun () ->
   { runc_state_dir; fast_sync; arches }
+open Sexplib.Conv 
+
+type config = {
+  fast_sync : bool;
+} [@@deriving sexp]
+
+let create ?state_dir (c : config) =
+  match state_dir with 
+    | None -> Fmt.failwith "Runc requires a state directory"
+    | Some runc_state_dir -> 
+        Os.ensure_dir runc_state_dir;
+        let arches = get_arches () in
+        Log.info (fun f -> f "Architectures for multi-arch system: %a" Fmt.(Dump.list string) arches);
+        { runc_state_dir; fast_sync = c.fast_sync; arches }
+
+open Cmdliner 
+
+let fast_sync =
+  Arg.value @@
+  Arg.opt Arg.bool false @@
+  Arg.info
+    ~doc:"Install a seccomp filter that skips allsync syscalls"
+    ~docv:"FAST_SYNC"
+    ["fast-sync"]
+
+let cmdliner : config Term.t = 
+  let make fast_sync = 
+    { fast_sync }
+  in
+  Term.(const make $ fast_sync)

@@ -9,6 +9,8 @@ type t = {
      (unit, [`Msg of string | `Cancelled]) Lwt_result.t) Queue.t;
 }
 
+let version = "mock-sandbox"
+
 let expect t x = Queue.add x t.expect
 
 let from ~log:_ ~from_stage:_ _t = 

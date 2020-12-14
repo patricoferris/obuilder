@@ -57,17 +57,4 @@
        calls to zfs for MacOS i.e. `DYLD...=/data/lib zfs create...`)
    (2) We only support relocatable packages, sorry.
 *)
-include S.SANDBOX
 
-val create : 
-  uid:int -> 
-  fallback_library_path:string -> 
-  scoreboard:string ->
-  t 
-(** [create ~uid ~fallback_library_path ~scoreboard] generates a new 
-    Macos configuration which will build inside a user "mac<uid>" and the dynamic 
-    libraries for zfs/zpool must also be in [fallback_library_path] as usually 
-    they are in /usr/local which won't be available (see note above). The [scoreboard]
-    will be the location symlinks are created letting you know the home directory 
-    of different users.
-*)

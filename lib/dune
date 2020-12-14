@@ -1,5 +1,22 @@
+(include_subdirs unqualified)
 (library
   (name obuilder)
   (public_name obuilder)
   (preprocess (pps ppx_sexp_conv))
-  (libraries lwt lwt.unix fmt yojson tar-unix sexplib sqlite3 astring logs sha obuilder-spec))
+  (libraries 
+    (select sandbox.ml from
+      (obuilder-mac -> sandbox.macos.ml)
+      ( -> sandbox.runc.ml))
+    lwt 
+    lwt.unix 
+    cmdliner 
+    fmt 
+    yojson 
+    tar-unix
+    sexplib 
+    sqlite3 
+    astring 
+    logs 
+    sha 
+    obuilder-spec))
+
