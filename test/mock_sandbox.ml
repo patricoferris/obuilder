@@ -1,3 +1,6 @@
+open Cmdliner
+open Sexplib.Conv
+
 type t = {
   dir : string;
   expect :
@@ -8,6 +11,27 @@ type t = {
      string ->
      (unit, [`Msg of string | `Cancelled]) Lwt_result.t) Queue.t;
 }
+
+type config = {
+  dir : string;
+}[@@deriving sexp]
+
+
+let dir =
+  Arg.required @@
+  Arg.opt Arg.(some file) None @@
+  Arg.info
+    ~doc:"Directory"
+    ~docv:"DIR"
+    ["dir"]
+
+let cmdliner : config Term.t = 
+  let make dir = 
+    { dir }
+  in
+  Term.(const make $ dir)
+
+let fake_config = { dir = "" }
 
 let version = "mock-sandbox"
 
@@ -27,4 +51,7 @@ let run ~cancelled ?stdin ~log t (config:Obuilder.Config.t) dir =
         | ex -> Lwt_result.fail (`Msg (Printexc.to_string ex))
       )
 
-let create dir = { dir; expect = Queue.create () }
+let create ?state_dir:dir conf = 
+  match dir with 
+    | Some dir -> { dir; expect = Queue.create () }
+    | None -> {dir = conf.dir; expect = Queue.create ()} 

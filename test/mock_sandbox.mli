@@ -1,6 +1,7 @@
 include Obuilder.S.SANDBOX
 
-val create : string -> t
+val fake_config : config 
+
 val expect :
   t -> (cancelled:unit Lwt.t ->
         ?stdin:Obuilder.Os.unix_fd ->
