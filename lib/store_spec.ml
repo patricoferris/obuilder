@@ -7,7 +7,11 @@ type t = [
 
 let of_string s =
   match Astring.String.cut s ~sep:":" with
-  | Some ("zfs", pool) -> Ok (`Zfs (None, pool))
+  | Some ("zfs", pool) -> begin
+    match Astring.String.cut pool ~sep:"/" with 
+    | Some (prefix, pool) -> Ok (`Zfs (Some prefix, pool))
+    | None -> Ok (`Zfs (None, pool))
+  end
   | Some ("btrfs", path) -> Ok (`Btrfs path)
   | _ -> Error (`Msg "Store must start with zfs: or btrfs:")
 

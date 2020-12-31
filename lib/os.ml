@@ -188,5 +188,8 @@ module Macos = struct
 
   (* Used by the FUSE filesystem to indicate where a users home directory should be ...*)
   let update_scoreboard ~uid ~scoreboard ~homedir = 
-    ["ln"; "-fs"; homedir; scoreboard ^ "/" ^ string_of_int uid]
+    ["ln"; "-Fhs"; homedir; scoreboard ^ "/" ^ string_of_int uid]
+
+  let get_tmpdir ~uid = 
+    ["sudo"; "-u"; "mac" ^ uid; "-i"; "getconf"; "DARWIN_USER_TEMP_DIR"]
 end 
