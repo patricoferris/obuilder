@@ -602,6 +602,23 @@ let test_cache_id () =
   check "c-foo%3abar" "foo:bar";
   check "c-Az09-id.foo_orig" "Az09-id.foo_orig"
 
+(* Test basic functions *)
+
+let store_spec = Alcotest.testable Store_spec.pp Stdlib.( = )
+let msg = Alcotest.of_pp (fun f (`Msg m) -> Fmt.string f m)
+
+let test_store_spec _switch () = 
+  let btrfs = "btrfs:/mnt/btrfs" in 
+  let b_res = Store_spec.of_string btrfs in 
+  Alcotest.(check (result store_spec msg)) "BTRFS Store" (Ok (`Btrfs "/mnt/btrfs")) b_res;
+  let zfs = "zfs:tank" in 
+  let z_res = Store_spec.of_string zfs in 
+  Alcotest.(check (result store_spec msg)) "ZFS Store (no prefix)" (Ok (`Zfs (None, "tank"))) z_res;
+  let zfs = "zfs:volumes/tank" in 
+  let z_res = Store_spec.of_string zfs in 
+  Alcotest.(check (result store_spec msg)) "ZFS Store (with prefix)" (Ok (`Zfs (Some "volumes", "tank"))) z_res; 
+  Lwt.return ()
+
 let () =
   let open Alcotest_lwt in
   Lwt_main.run begin
@@ -627,5 +644,8 @@ let () =
       "manifest", [
         test_case "Copy"       `Quick test_copy;
       ];
+      "store", [
+        test_case "Store_spec" `Quick test_store_spec
+      ]
     ]
   end

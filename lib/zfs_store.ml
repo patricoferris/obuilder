@@ -32,6 +32,7 @@ type cache = {
 
 type t = {
   pool : string;
+  prefix : string;
   caches : (string, cache) Hashtbl.t;
   mutable next : int;
 }
@@ -140,8 +141,9 @@ let delete_if_exists t ds mode =
 
 let state_dir t = Dataset.path t Dataset.state
 
-let create ~pool =
-  let t = { pool; caches = Hashtbl.create 10; next = 0 } in
+let create ~prefix ~pool = 
+  let prefix = Option.value ~default:"" prefix in 
+  let t = { pool; prefix; caches = Hashtbl.create 10; next = 0 } in
   (* Ensure any left-over temporary datasets are removed before we start. *)
   delete_if_exists t (Dataset.cache_tmp_group) `And_snapshots_and_clones >>= fun () ->
   Dataset.groups |> Lwt_list.iter_s (fun group ->
