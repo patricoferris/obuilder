@@ -1,5 +1,32 @@
+(rule
+ (alias build)
+ (deps sandbox.macos.ml)
+ (target sandbox.ml)
+ (enabled_if (= %{system} macosx))
+ (action (copy %{deps} %{target})))
+
+(rule
+ (alias build)
+ (deps sandbox.runc.ml)
+ (target sandbox.ml)
+ (enabled_if (<> %{system} macosx))
+ (action (copy %{deps} %{target})))
+
 (library
-  (name obuilder)
-  (public_name obuilder)
-  (preprocess (pps ppx_sexp_conv))
-  (libraries lwt lwt.unix fmt yojson tar-unix sexplib sqlite3 astring logs sha obuilder-spec cmdliner))
+ (name obuilder)
+ (public_name obuilder)
+ (preprocess
+  (pps ppx_sexp_conv))
+ (libraries
+  lwt
+  lwt.unix
+  fmt
+  yojson
+  tar-unix
+  sexplib
+  sqlite3
+  astring
+  logs
+  sha
+  obuilder-spec
+  cmdliner))

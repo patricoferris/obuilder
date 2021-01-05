@@ -155,3 +155,40 @@ let ensure_dir path =
   match check_dir path with
   | `Present -> ()
   | `Missing -> Unix.mkdir path 0o777
+
+module Macos = struct 
+  let ( / ) = Filename.concat  
+
+  (* Generates a new MacOS user called `<prefix><uid>' *)
+  let create_new_user ~prefix ~home ~uid ~gid = 
+    let user = "/Users" / (prefix ^ uid) in  
+    let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
+    let dscl = ["dscl"; "."; "-create"; user ] in 
+      sudo_result ~pp:(pp "UniqueID") (dscl @ ["UniqueID"; uid]) >>!= fun _ ->
+      sudo_result ~pp:(pp "PrimaryGroupID") (dscl @ ["PrimaryGroupID"; gid]) >>!= fun _ ->
+      sudo_result ~pp:(pp "UserShell") (dscl @ ["UserShell"; "/bin/bash"]) >>!= fun _ -> 
+      sudo_result ~pp:(pp "NFSHomeDirectory") (dscl @ ["NFSHomeDirectory"; home]) >>!= fun _ -> 
+      sudo (dscl @ ["-passwd"; user; "hello"]) >>= fun _ -> Lwt.return_ok ()
+
+  let delete_user ~user = 
+    let user = "/Users" / user in 
+    let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
+    let delete = ["dscl"; "."; "-delete"; user ] in 
+      sudo_result ~pp:(pp "Deleting") delete
+
+  let copy_brew_template ~lib:_ ~local = 
+    let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
+    sudo_result ~pp:(pp "Rsync Brew") ["rsync"; "-avq"; "/Users/mac701/local"; local] >>!= fun _ -> 
+    sudo_result ~pp:(pp "Make tmpdir") ["mkdir"; "-m"; "775"; local / "tmp"] >>!= fun _ -> 
+    sudo_result ~pp:(pp "Bash Profile") ["cp"; "/Users/mac701/.bash_profile"; local]
+
+  let change_home_directory_for ~user ~homedir = 
+    ["dscl"; "."; "-create"; "/Users/" ^ user ; "NFSHomeDirectory"; homedir ]
+
+  (* Used by the FUSE filesystem to indicate where a users home directory should be ...*)
+  let update_scoreboard ~uid ~scoreboard ~homedir = 
+    ["ln"; "-Fhs"; homedir; scoreboard ^ "/" ^ string_of_int uid]
+
+  let get_tmpdir ~uid = 
+    ["sudo"; "-u"; "mac" ^ uid; "-i"; "getconf"; "DARWIN_USER_TEMP_DIR"]
+end

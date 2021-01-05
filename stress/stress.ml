@@ -16,8 +16,6 @@ let assert_str expected got =
     exit 1
   )
 
-module Sandbox = Runc_sandbox
-
 module Test(Store : S.STORE) = struct
   let assert_output expected t id =
     match Store.result t id with
@@ -157,6 +155,7 @@ module Test(Store : S.STORE) = struct
 
   let stress_builds store conf =
     Sandbox.create ~state_dir:(Store.state_dir store / "runc") conf >>= fun sandbox ->
+    Sandbox.pp Fmt.stdout sandbox;
     let builder = Build.v ~store ~sandbox in
     let pending = ref n_jobs in
     let running = ref 0 in

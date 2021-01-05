@@ -294,6 +294,20 @@ The dockerfile should work the same way as the spec file, except for these limit
 - All `(network ...)` fields are ignored, as Docker does not allow per-step control of
   networking.
 
+## MacOS Support 
+
+Status: **Very experimental** 
+
+The road to MacOS support has been long and winding given the lack of native container support. A workaround was proposed by @avsm. The main problem to overcome is how to create the Sandbox in a MacOS setting. The solution was to steal the inherent sandboxing provided by operating system users. For the store (i.e. the snapshotting filesystem) we use [OpenZFS on OS X](https://openzfsonosx.org/).
+
+A user is generated per OBuilder run, for explanation purposes suppose it is `mac705`. The `run` commands are now executed as this user. The home directory of `mac705` is set to the current snapshot directory (e.g. `/Volumes/tank/results/abcde12345`). This means changes are built directly into the snapshot. As the build progresses we change the home directory of the user as necessary.
+
+So far so good. However, what about package management i.e. `brew install opam`. Unfortunately, [Homebrew](https://docs.brew.sh/Installation#untar-anywhere) really doesn't like to be put anywhere except `/usr/local` which poses a problem because this isn't unique to a user! The workaround here is quite hacky, we mount a [FUSE filesystem](https://github.com/patricoferris/obuilder-fs) on `/usr/local` that intercepts calls made to this directory and redirects them to `/<user-homedir>/local`. That way multiple users can happily be `brew` installing and not impacting each other's installed world. 
+
+The next problem is how does FUSE know how to map `mac705` accessing `/usr/local` to `/Volumes/tank/results/abcde12345`? That's what the `scoreboard` directory (a parameter to both OBuilder and FUSE) is for. Here symlinks are recorded such as `705 -> /Volumes/tank/results/abcde12345` which FUSE will read to decide where to redirect to, and OBuilder writes to whenever the home directory changes. 
+
+Finally, whenever the FUSE filesystem is mounted on `/usr/local` anything within that directory is not accessible so you will need to move binaries somewhere else and set the `DYLD_FALLBACK_LIBRARY_PATH` to somewhere you can but dynamic libraries from `/usr/local/lib`.
+
 ## Licensing
 
 OBuilder is licensed under the Apache License, Version 2.0.

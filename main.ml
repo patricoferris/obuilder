@@ -10,7 +10,7 @@ module Store = Obuilder.Zfs_store
 let store = Lwt_main.run @@ Store.create ~pool:"tank"
 *)
 
-module Sandbox = Obuilder.Runc_sandbox
+module Sandbox = Obuilder.Sandbox
 
 type builder = Builder : (module Obuilder.BUILDER with type t = 'a) * 'a -> builder
 
