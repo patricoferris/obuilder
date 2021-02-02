@@ -215,7 +215,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
     in
       aux context child_builds >>!= fun context ->
       let log = context.Context.log in 
-      let id = Sha256.to_hex (Sha256.string (snd from)) in
+      let id = Sha256.to_hex (Sha256.string from) in
       let f = Sandbox.from ~from_stage:from ~log t.sandbox in 
       Store.build t.store ~id ~log f >>!= fun id -> 
         (match Store.result t.store id with 
@@ -260,7 +260,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
     let switch = Lwt_switch.create () in
     let context = Context.v ~switch ~log ~src_dir:"/tmp" () in
     let id = Sha256.to_hex (Sha256.string healthcheck_base) in
-    let f = Sandbox.from ~from_stage:("docker", healthcheck_base) ~log t.sandbox in 
+    let f = Sandbox.from ~from_stage:healthcheck_base ~log t.sandbox in 
     (Store.build t.store ~id ~log f >>!= fun id -> 
       let path = Option.get (Store.result t.store id) in
       let { Saved_context.env } = Saved_context.t_of_sexp (Sexplib.Sexp.load_sexp (path / "env")) in

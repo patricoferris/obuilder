@@ -52,13 +52,13 @@ let copy_to_log ~src ~dst =
   aux ()
 
 let from ~log ~from_stage (t : t) =
-  log `Heading (Fmt.strf "SYS %s" (snd from_stage));
-  let id = Sha256.to_hex (Sha256.string (snd from_stage)) in
+  log `Heading (Fmt.strf "SYS %s" from_stage);
+  let id = Sha256.to_hex (Sha256.string from_stage) in
   let home = "/Volumes/tank/result" / id in 
   let uid = string_of_int t.uid in 
   fun ~cancelled:_ ~log:_ (_ : string) ->
     Os.Macos.create_new_user ~prefix:"mac" ~home ~uid ~gid:"1000" >>= fun _ ->
-    Os.Macos.copy_brew_template ~lib:home ~local:home >>= fun _ -> 
+    Os.Macos.copy_template ~base:("/Users/" ^ from_stage) ~local:home >>= fun _ -> 
     Os.(sudo @@ Macos.update_scoreboard ~uid:t.uid ~homedir:home ~scoreboard:t.scoreboard) >>= fun _ ->
     Os.sudo [ "chown"; "-R"; ":1000"; home ] >>= fun () -> 
     Os.pread @@ Os.Macos.get_tmpdir ~uid >>= fun s -> 
@@ -73,9 +73,8 @@ let convert_env env =
     List.map (fun (_, p) -> 
       match Astring.String.cut ~sep:":" p with 
         | Some (path, "$PATH") -> path
-        | _ -> "") paths 
+        | _ -> "") paths  |> List.filter (fun s -> not @@ String.equal "" s)
   in 
-  List.iter (fun s -> Log.info (fun f -> f "%s" s)) paths;
   let paths = "PATH=" ^ String.concat ":" paths ^ ":$PATH" in
   let rec aux acc = function 
     | []  -> List.rev acc 
@@ -92,10 +91,9 @@ let convert_env env =
 let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
   Os.with_pipe_from_child @@ fun ~r:out_r ~w:out_w ->
   let set_homedir = Os.Macos.change_home_directory_for ~user:("mac" ^ string_of_int t.uid) ~homedir in 
-  let switch_prefix = ("OPAM_SWITCH_PREFIX", homedir / ".opam" / "default") in 
-  let bin_prefix = ("PATH", homedir / ".opam" / "default" / "bin" ^ ":$PATH") in 
   let osenv = config.Config.env in 
-  let env = convert_env (("HOME", homedir) :: ("TMPDIR", t.tmpdir) :: bin_prefix :: switch_prefix :: osenv) in 
+  List.iter (fun (p, v) -> Log.info (fun f -> f "%s=%s" p v)) osenv;
+  let env = convert_env (("HOME", homedir) :: ("TMPDIR", t.tmpdir) :: osenv) in 
   let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir ~scoreboard:t.scoreboard in 
   let cmd = run_as ~env ~cwd:config.Config.cwd ~user:("mac" ^ string_of_int t.uid) ~cmd:config.Config.argv in
   let stdout = `FD_move_safely out_w in

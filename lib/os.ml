@@ -177,11 +177,9 @@ module Macos = struct
     let delete = ["dscl"; "."; "-delete"; user ] in 
       sudo_result ~pp:(pp "Deleting") delete
 
-  let copy_brew_template ~lib:_ ~local = 
+  let copy_template ~base ~local = 
     let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
-    sudo_result ~pp:(pp "Rsync Brew") ["rsync"; "-avq"; "/Users/mac701/local"; local] >>!= fun _ -> 
-    sudo_result ~pp:(pp "Make tmpdir") ["mkdir"; "-m"; "775"; local / "tmp"] >>!= fun _ -> 
-    sudo_result ~pp:(pp "Bash Profile") ["cp"; "/Users/mac701/.bash_profile"; local]
+    sudo_result ~pp:(pp "Rsync Brew") ["rsync"; "-avq"; base; local]
 
   let change_home_directory_for ~user ~homedir = 
     ["dscl"; "."; "-create"; "/Users/" ^ user ; "NFSHomeDirectory"; homedir ]

@@ -89,7 +89,7 @@ end = struct
     else fn ()
 end
 
-let user = { Obuilder_spec.uid = Unix.getuid (); gid = Unix.getgid () }
+let user = { Obuilder_spec.uid = 500; gid = 1000 }
 
 module Zfs = struct
   let chown ~user t ds =

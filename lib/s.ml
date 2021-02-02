@@ -81,7 +81,7 @@ module type SANDBOX = sig
 
   val from : 
     log:logger -> 
-    from_stage:(string * string) ->
+    from_stage:string ->
     t -> 
     cancelled:unit Lwt.t ->
     log:Build_log.t ->

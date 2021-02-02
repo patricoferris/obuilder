@@ -115,17 +115,17 @@ let op_of_sexp x =
 
 type t = {
   child_builds : (string * t) list;
-  from : string * string;
+  from : string;
   ops : op list;
 }
 
-let rec sexp_of_t { child_builds; from = typ, hash; ops } =
+let rec sexp_of_t { child_builds; from; ops } =
   let child_builds =
     child_builds |> List.map (fun (name, spec) ->
         List [ Atom "build"; Atom name; sexp_of_t spec ]
       )
   in
-  List (child_builds @ List [ Atom "from"; List [Atom typ ; Atom hash ] ] :: List.map sexp_of_op ops)
+  List (child_builds @ List [ Atom "from"; Atom from ] :: List.map sexp_of_op ops)
 
 let rec t_of_sexp = function
   | Atom _ as x -> Fmt.failwith "Invalid spec: %a" Sexplib.Sexp.pp_hum x
@@ -134,9 +134,9 @@ let rec t_of_sexp = function
       | List [ Atom "build"; Atom name; child_spec ] :: xs ->
         let child = (name, t_of_sexp child_spec) in
         aux (child :: acc) xs
-      | List [ Atom "from"; List [Atom typ ; Atom hash ] ] :: ops ->
+      | List [ Atom "from"; Atom from ] :: ops ->
         let child_builds = List.rev acc in
-        { child_builds; from = typ, hash; ops = List.map op_of_sexp ops }
+        { child_builds; from; ops = List.map op_of_sexp ops }
       | x :: _ -> Fmt.failwith "Invalid spec item: %a" Sexplib.Sexp.pp_hum x
       | [] -> Fmt.failwith "Invalid spec: missing (from)"
     in

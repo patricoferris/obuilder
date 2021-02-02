@@ -60,7 +60,7 @@ let rec convert ~buildkit f (name, { Spec.child_builds; from; ops }) =
       convert ~buildkit f (Some name, spec);
       Format.pp_print_newline f ();
     );
-  Fmt.pf f "@[<h>FROM %s%a@]@." (snd from) Fmt.(option (const string " as " ++ string)) name;
+  Fmt.pf f "@[<h>FROM %s%a@]@." from Fmt.(option (const string " as " ++ string)) name;
   let (_ : ctx) = List.fold_left (fun ctx op ->
       Format.pp_open_hbox f ();
       let ctx = pp_op ~buildkit ctx f op in
