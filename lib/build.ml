@@ -120,7 +120,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
         match Scope.find_opt name scope with
         | None -> Fmt.failwith "Unknown build %S" name   (* (shouldn't happen; gets caught earlier) *)
         | Some id ->
-          match Store.result t.store id with
+          Store.result t.store id >>= fun r -> match r with
           | None ->
             Lwt_result.fail (`Msg (Fmt.strf "Build result %S not found" id))
           | Some dir ->
@@ -179,7 +179,9 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
     { context with workdir }
 
   let rec run_steps t ~(context:Context.t) ~base = function
-    | [] -> Lwt_result.return base
+    | [] -> 
+      Sandbox.clean t.sandbox >>= fun () -> 
+      Lwt_result.return base
     | op :: ops ->
       context.log `Heading Fmt.(strf "%a" (pp_op ~context) op);
       let k = run_steps t ops in
@@ -218,7 +220,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
       let id = Sha256.to_hex (Sha256.string from) in
       let f = Sandbox.from ~from_stage:from ~log t.sandbox in 
       Store.build t.store ~id ~log f >>!= fun id -> 
-        (match Store.result t.store id with 
+        (Store.result t.store id >>= fun r -> match r with
         | Some path -> 
             if Sys.file_exists @@ path / "env" then begin 
               let { Saved_context.env } = Saved_context.t_of_sexp (Sexplib.Sexp.load_sexp (path / "env")) in
@@ -262,7 +264,8 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
     let id = Sha256.to_hex (Sha256.string healthcheck_base) in
     let f = Sandbox.from ~from_stage:healthcheck_base ~log t.sandbox in 
     (Store.build t.store ~id ~log f >>!= fun id -> 
-      let path = Option.get (Store.result t.store id) in
+      Store.result t.store id >>= fun p -> 
+      let path = Option.get p in
       let { Saved_context.env } = Saved_context.t_of_sexp (Sexplib.Sexp.load_sexp (path / "env")) in
       Lwt_result.return (id, env))
       >>= function

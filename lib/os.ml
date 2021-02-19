@@ -160,26 +160,47 @@ let ensure_dir path =
 module Macos = struct 
   let ( / ) = Filename.concat  
 
+  let user_exists ~user =
+    pread ["sudo"; "dscl"; "."; "list"; "/Users"] >|= fun s -> 
+    List.exists (Astring.String.equal user) (Astring.String.cuts ~sep:"\n" s)
+
   (* Generates a new MacOS user called `<prefix><uid>' *)
-  let create_new_user ~prefix ~home ~uid ~gid = 
-    let user = "/Users" / (prefix ^ uid) in  
-    let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
-    let dscl = ["dscl"; "."; "-create"; user ] in 
-      sudo_result ~pp:(pp "UniqueID") (dscl @ ["UniqueID"; uid]) >>!= fun _ ->
-      sudo_result ~pp:(pp "PrimaryGroupID") (dscl @ ["PrimaryGroupID"; gid]) >>!= fun _ ->
-      sudo_result ~pp:(pp "UserShell") (dscl @ ["UserShell"; "/bin/bash"]) >>!= fun _ -> 
-      sudo_result ~pp:(pp "NFSHomeDirectory") (dscl @ ["NFSHomeDirectory"; home]) >>!= fun _ -> 
-      sudo (dscl @ ["-passwd"; user; "hello"]) >>= fun _ -> Lwt.return_ok ()
+  let create_new_user ~username ~home ~uid ~gid = 
+    user_exists ~user:username >>= begin function 
+      | true ->  Lwt.return_ok () 
+      | false -> 
+        let user = "/Users" / username in  
+        let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
+        let dscl = ["dscl"; "."; "-create"; user ] in 
+          sudo_result ~pp:(pp "UniqueID") (dscl @ ["UniqueID"; uid]) >>!= fun _ ->
+          sudo_result ~pp:(pp "PrimaryGroupID") (dscl @ ["PrimaryGroupID"; gid]) >>!= fun _ ->
+          sudo_result ~pp:(pp "UserShell") (dscl @ ["UserShell"; "/bin/bash"]) >>!= fun _ -> 
+          sudo_result ~pp:(pp "NFSHomeDirectory") (dscl @ ["NFSHomeDirectory"; home]) >>!= fun _ -> 
+          sudo (dscl @ ["-passwd"; user; "hello"]) >>= fun _ -> Lwt.return_ok ()
+    end 
 
   let delete_user ~user = 
-    let user = "/Users" / user in 
+    user_exists ~user >>= begin function
+      | false -> 
+        Log.info (fun f -> f "Not deleting %s as they don't exists" user);
+        Lwt_result.return ()
+      | true ->
+        let user = "/Users" / user in 
+        let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
+        let delete = ["dscl"; "."; "-delete"; user ] in 
+          sudo_result ~pp:(pp "Deleting") delete
+    end
+
+  let pkill ~user = 
     let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
-    let delete = ["dscl"; "."; "-delete"; user ] in 
-      sudo_result ~pp:(pp "Deleting") delete
+    let delete = ["pkill"; "-u"; user ] in 
+    sudo_result ~pp:(pp "Killing") delete >|= function 
+      | Ok () -> () 
+      | _ -> Log.warn (fun f -> f "Failed to pkill for %s" user); ()
 
   let copy_template ~base ~local = 
     let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
-    sudo_result ~pp:(pp "Rsync Brew") ["rsync"; "-avq"; base; local]
+    sudo_result ~pp:(pp "Rsync Brew") ["rsync"; "-avq"; base ^ "/"; local]
 
   let change_home_directory_for ~user ~homedir = 
     ["dscl"; "."; "-create"; "/Users/" ^ user ; "NFSHomeDirectory"; homedir ]
@@ -188,6 +209,9 @@ module Macos = struct
   let update_scoreboard ~uid ~scoreboard ~homedir = 
     ["ln"; "-Fhs"; homedir; scoreboard ^ "/" ^ string_of_int uid]
 
-  let get_tmpdir ~uid = 
-    ["sudo"; "-u"; "mac" ^ uid; "-i"; "getconf"; "DARWIN_USER_TEMP_DIR"]
+  let remove_link ~uid ~scoreboard =
+    [ "rm"; scoreboard ^ "/" ^ string_of_int uid ]
+
+  let get_tmpdir ~user = 
+    ["sudo"; "-u"; user; "-i"; "getconf"; "DARWIN_USER_TEMP_DIR"]
 end 

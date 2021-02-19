@@ -31,8 +31,11 @@ module type STORE = sig
   val delete : t -> id -> unit Lwt.t
   (** [delete t id] removes [id] from the store, if present. *)
 
-  val result : t -> id -> string option
+  val result : t -> id -> string option Lwt.t 
   (** [result t id] is the path of the build result for [id], if present. *)
+
+  val result_path : t -> id -> string option Lwt.t 
+  (** The true filesystem path -- mainly used for ZFS *)
 
   val state_dir : t -> string
   (** [state_dir] is the path of a directory which can be used to store mutable
@@ -106,6 +109,10 @@ module type SANDBOX = sig
       @param stdin Passed to child as its standard input.
       @param log Used for child's stdout and stderr.
   *)
+
+  val clean : 
+    t -> unit Lwt.t 
+  (** [clean t] is called after a build completes and allows the sandbox to do any final tidying up *)
 end
 
 module type BUILDER = sig

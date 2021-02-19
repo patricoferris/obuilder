@@ -383,6 +383,8 @@ let create ?state_dir (c : config) =
         Log.info (fun f -> f "Architectures for multi-arch system: %a" Fmt.(Dump.list string) arches);
         { runc_state_dir; fast_sync = c.fast_sync; arches }
 
+let clean _ = Lwt.return ()
+
 open Cmdliner 
 
 let fast_sync =

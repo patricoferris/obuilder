@@ -100,16 +100,48 @@ module Zfs = struct
     Os.sudo ["chmod"; mode; Dataset.path t ds]
 
   let create t ds =
+    Log.info (fun f -> f "Creating %s\n" (Dataset.full_name t ds));
     Os.sudo ["zfs"; "create"; "--"; Dataset.full_name t ds]
 
-  let destroy t ds mode =
+  let list_snapshots t ds = 
+    Os.pread ["zfs"; "list"; "-t"; "snapshot"; "-o"; "name"] >|= String.split_on_char '\n' >|= fun res -> 
+      match res with 
+        | _::rest -> rest 
+        | _ -> []
+
+  let get_snap ~snapshot t id = 
+    let ds = Dataset.result id in
+    let path = Dataset.full_name t ds ~snapshot in
+    list_snapshots t ds >|= fun snaps -> 
+    Log.debug (fun f -> f "Looking for: %s in [%a]" path Fmt.(list string) snaps);
+    if List.exists (String.equal path) snaps then Some path else None 
+
+  let get_snap_from_path ~snapshot t ds = 
+    let path = Dataset.full_name t ds ~snapshot in
+    list_snapshots t ds >|= fun snaps -> 
+    Log.debug (fun f -> f "Looking for: %s in [%a]" path Fmt.(list string) snaps);
+    if List.exists (String.equal path) snaps then Some path else None 
+
+  let destroy ?(force=false) t ds mode =
     let opts =
       match mode with
       | `Only -> []
       | `And_snapshots -> ["-r"]
       | `And_snapshots_and_clones -> ["-R"]
     in
+    let opts = if force then "-f" :: opts else opts in 
+    Log.info (fun f -> f "Destroying %s\n" (Dataset.full_name t ds));
     Os.sudo (["zfs"; "destroy"] @ opts @ ["--"; Dataset.full_name t ds])
+
+  let destroy_result ?(force=false) t ds mode =
+    let opts =
+      match mode with
+      | `Only -> []
+      | `And_snapshots -> ["-r"]
+      | `And_snapshots_and_clones -> ["-R"]
+    in
+    let opts = if force then "-f" :: opts else opts in 
+    Os.sudo_result ~pp:(fun ppf -> Fmt.pf ppf "Destroying %s" (Dataset.full_name t ds)) (["zfs"; "destroy"] @ opts @ ["--"; Dataset.full_name t ds])
 
   let destroy_snapshot t ds snapshot mode =
     let opts =
@@ -118,28 +150,35 @@ module Zfs = struct
       | `Recurse -> ["-R"]
       | `Immediate -> []
     in
+    Log.info (fun f -> f "Destroying snapshot %s\n" (Dataset.full_name t ds ^ "@" ^ snapshot));
     Os.sudo (["zfs"; "destroy"] @ opts @ ["--"; Dataset.full_name t ds ^ "@" ^ snapshot])
 
   let clone t ~src ~snapshot dst =
+    Log.info (fun f -> f "Cloning %s\n" (Dataset.full_name t dst));
     Os.sudo ["zfs"; "clone"; "--"; Dataset.full_name t src ~snapshot; Dataset.full_name t dst]
 
   let snapshot t ds ~snapshot =
-    Os.sudo ["zfs"; "snapshot"; "--"; Dataset.full_name t ds ~snapshot]
+    Log.info (fun f -> f "Snapshotting %s\n" (Dataset.full_name t ds));
+    Os.sudo ["zfs"; "snapshot"; Dataset.full_name t ds ~snapshot]
 
   let promote t ds =
+    Log.info (fun f -> f "Promoting %s\n" (Dataset.full_name t ds));
     Os.sudo ["zfs"; "promote"; Dataset.full_name t ds]
 
   let rename t ~old ds =
+    Log.info (fun f -> f "Rename from %s to %s\n" (Dataset.full_name t old) (Dataset.full_name t ds));
     Os.sudo ["zfs"; "rename"; "--"; Dataset.full_name t old; Dataset.full_name t ds]
 
   let rename_snapshot t ds ~old snapshot =
+    Log.info (fun f -> f "Rename snap from %s to %s\n" (Dataset.full_name t ds ~snapshot:old) (Dataset.full_name t ds ~snapshot));
     Os.sudo ["zfs"; "rename"; "--";
           Dataset.full_name t ds ~snapshot:old;
           Dataset.full_name t ds ~snapshot]
 end
 
 let delete_if_exists t ds mode =
-  if Dataset.exists t ds then Zfs.destroy t ds mode
+  if Dataset.exists t ds then 
+  (Log.info (fun f -> f "Deleting %s\n" (Dataset.full_name t ds)); Zfs.destroy t ds mode)
   else Lwt.return_unit
 
 let state_dir t = Dataset.path t Dataset.state
@@ -195,20 +234,32 @@ let build t ?base ~id fn =
            keep it around? *)
         Lwt_result.return ()
       | Error _ as e ->
-        Log.debug (fun f -> f "zfs: build %S failed" id);
-        Zfs.destroy t ds `Only >>= fun () ->
-        Lwt.return e
+        Log.info (fun f -> f "zfs: build %S failed" id);
+        (* This is WRONG... the log file is still open here and that's why ZFS is refusing to shut... *)
+        let rec _aux () =
+          Zfs.destroy_result t ds `Only >>= begin function
+            | Ok () -> Lwt.return e
+            | _ ->
+              Lwt_unix.sleep 10. >>= fun () -> _aux ()
+          end 
+        in Lwt.return e
     )
     (fun ex ->
         Log.warn (fun f -> f "Uncaught exception from %S build function: %a" id Fmt.exn ex);
         raise ex
     )
 
-let result t id =
+let result t id = Zfs.get_snap ~snapshot:default_snapshot t id
+
+let check_snap ~snapshot t id = 
+  Zfs.get_snap ~snapshot:default_snapshot t id >|= Option.is_some
+
+let result_path t id =
   let ds = Dataset.result id in
-  let path = Dataset.path t ds ~snapshot:default_snapshot in
-  if Sys.file_exists path then Some path
-  else None
+  let path = Dataset.full_name t ds ~snapshot:default_snapshot in
+  Zfs.list_snapshots t ds >|= fun snaps -> 
+  Log.debug (fun f -> f "Looking for: %s in [%a]" path Fmt.(list string) snaps);
+  if List.exists (String.equal path) snaps then Some (Dataset.path t ds) else None  
 
 let get_cache t name =
   match Hashtbl.find_opt t.caches name with
@@ -260,10 +311,13 @@ let cache ~user t name : (string * (unit -> unit Lwt.t)) Lwt.t =
   Dataset.if_missing t main_ds (fun  () -> Zfs.create t main_ds) >>= fun () ->
   (* Ensure we have the snapshot. This is needed on first creation, and
      also to recover from crashes. *)
-  Dataset.if_missing t main_ds ~snapshot:default_snapshot (fun () ->
-      Zfs.chown ~user t main_ds >>= fun () ->
-      Zfs.snapshot t main_ds ~snapshot:default_snapshot
-    ) >>= fun () ->
+  (* XXX patricoferris: if_missing uses checkdir which for a snap (on macOS at least) will not find anything *)
+  Zfs.get_snap_from_path ~snapshot:default_snapshot t main_ds >|= Option.is_some >>= begin function 
+    | false -> 
+        Zfs.chown ~user t main_ds >>= fun () ->
+        Zfs.snapshot t main_ds ~snapshot:default_snapshot
+    | true -> Lwt.return ()
+  end >>= fun () ->
   cache.n_clones <- cache.n_clones + 1;
   Zfs.clone t ~src:main_ds ~snapshot:default_snapshot tmp_ds >>= fun () ->
   let release () =

@@ -46,15 +46,14 @@ module Make (Raw : S.STORE) = struct
      or by doing a new build using [fn]. We only run one instance of this
      at a time for a single [id]. *)
   let get_build t ~base ~id ~cancelled ~set_log fn =
-    match Raw.result t.raw id with
+    Raw.result t.raw id >>= (function 
     | Some dir ->
       let now = Unix.(gmtime (gettimeofday ())) in
       Dao.set_used t.dao ~id ~now;
-      let log_file = dir / "log" in
-      begin
-        if Sys.file_exists log_file then Build_log.of_saved log_file
-        else Lwt.return Build_log.empty
-      end >>= fun log ->
+      Raw.result_path t.raw id >>= begin function 
+        | Some path_dir -> Build_log.of_saved (path_dir  / "log")
+        | None -> Lwt.return Build_log.empty
+      end >>= fun log -> 
       Lwt.wakeup set_log log;
       Lwt_result.return (`Loaded, id)
     | None ->
@@ -68,7 +67,7 @@ module Make (Raw : S.STORE) = struct
       >>!= fun () ->
       let now = Unix.(gmtime (gettimeofday () )) in
       Dao.add t.dao ?parent:base ~id ~now;
-      Lwt_result.return (`Saved, id)
+      Lwt_result.return (`Saved, id))
 
   let log_ty client_log ~id = function
     | `Loaded -> client_log `Note (Fmt.strf "---> using %S from cache" id)

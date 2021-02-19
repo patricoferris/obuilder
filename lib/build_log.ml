@@ -75,6 +75,7 @@ let create path =
   }
 
 let finish t =
+  Log.info (fun f -> f "Finishing Log!");
   match t.state with
   | `Finished -> invalid_arg "Log is already finished!"
   | `Open (fd, cond) ->

@@ -5,6 +5,7 @@ type t = {
   uid: int;
   gid: int;
   mutable tmpdir : string;
+  mutable user : string;
   (* Where zfs dynamic libraries are -- can't be in /usr/local/lib 
      see notes in .mli file under "Various Gotchas"... *)
   fallback_library_path : string;
@@ -51,17 +52,22 @@ let copy_to_log ~src ~dst =
   in
   aux ()
 
+let user_name ~prefix ~uid ~from = 
+  Fmt.str "%s%s-%s" prefix uid from
+
 let from ~log ~from_stage (t : t) =
   log `Heading (Fmt.strf "SYS %s" from_stage);
   let id = Sha256.to_hex (Sha256.string from_stage) in
   let home = "/Volumes/tank/result" / id in 
   let uid = string_of_int t.uid in 
+  let username = user_name ~prefix:"mac" ~uid ~from:from_stage in 
+  t.user <- username;
   fun ~cancelled:_ ~log:_ (_ : string) ->
-    Os.Macos.create_new_user ~prefix:"mac" ~home ~uid ~gid:"1000" >>= fun _ ->
+    Os.Macos.create_new_user ~username ~home ~uid ~gid:"1000" >>= fun _ ->
     Os.Macos.copy_template ~base:("/Users/" ^ from_stage) ~local:home >>= fun _ -> 
     Os.(sudo @@ Macos.update_scoreboard ~uid:t.uid ~homedir:home ~scoreboard:t.scoreboard) >>= fun _ ->
     Os.sudo [ "chown"; "-R"; ":1000"; home ] >>= fun () -> 
-    Os.pread @@ Os.Macos.get_tmpdir ~uid >>= fun s -> 
+    Os.pread @@ Os.Macos.get_tmpdir ~user:username >>= fun s -> 
     Log.info (fun f -> f "Setting temporary directory to %s" s);
     t.tmpdir <- s; 
     Lwt.return (Ok () :> (unit, [ `Cancelled | `Msg of string ]) result)
@@ -75,13 +81,20 @@ let convert_env env =
         | Some (path, "$PATH") -> path
         | _ -> "") paths  |> List.filter (fun s -> not @@ String.equal "" s)
   in 
-  let paths = "PATH=" ^ String.concat ":" paths ^ ":$PATH" in
+  let paths = if List.length paths > 0 then "PATH=" ^ String.concat ":" paths ^ ":$PATH" else "" in
   let rec aux acc = function 
     | []  -> List.rev acc 
     | ("PATH", _) :: xs -> aux acc xs (* Remove the paths *)
     | (k, v)::xs -> aux ((k ^ "=" ^ v) :: acc) xs 
   in 
-   (paths :: aux [] env) (* Add the filtered paths *)
+  if paths = "" then aux [] env else (paths :: aux [] env) (* Add the filtered paths *)
+
+let clean (t : t) = 
+  (* Os.(sudo (Macos.remove_link ~uid:t.uid ~scoreboard:t.scoreboard)) >>= fun () -> *)
+  Log.info (fun f -> f "Deleting user %s" t.user);
+  Os.Macos.delete_user ~user:t.user >|= function 
+    | Ok () -> ()
+    | _ -> Log.err (fun f -> f "Failed to delete user: %s" t.user); ()
 
 (* A build step in macos: 
    - Should be properly sandboxed using sandbox-exec (coming soon...)
@@ -90,12 +103,16 @@ let convert_env env =
    - Should be executed by the underlying user (t.uid) *)
 let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
   Os.with_pipe_from_child @@ fun ~r:out_r ~w:out_w ->
-  let set_homedir = Os.Macos.change_home_directory_for ~user:("mac" ^ string_of_int t.uid) ~homedir in 
+  let user = t.user in 
+  let uid = string_of_int t.uid in 
+  Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ ->
+  let set_homedir = Os.Macos.change_home_directory_for ~user ~homedir in 
   let osenv = config.Config.env in 
   List.iter (fun (p, v) -> Log.info (fun f -> f "%s=%s" p v)) osenv;
-  let env = convert_env (("HOME", homedir) :: ("TMPDIR", t.tmpdir) :: osenv) in 
+  let switch_prefix = ("OPAM_SWITCH_PREFIX", homedir / ".opam" / "default") in (* TODO: Remove *)
+  let env = convert_env (("HOME", homedir) :: ("TMPDIR", t.tmpdir) :: switch_prefix :: osenv) in 
   let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir ~scoreboard:t.scoreboard in 
-  let cmd = run_as ~env ~cwd:config.Config.cwd ~user:("mac" ^ string_of_int t.uid) ~cmd:config.Config.argv in
+  let cmd = run_as ~env ~cwd:config.Config.cwd ~user ~cmd:config.Config.argv in
   let stdout = `FD_move_safely out_w in
   let stderr = stdout in
   let copy_log = copy_to_log ~src:out_r ~dst:log in
@@ -110,28 +127,31 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
   let rec aux () =
         if Lwt.is_sleeping proc then (
           let pp f = Fmt.pf f "Should kill %S" homedir in
-          Os.sudo_result ["echo"; "TODO"] ~pp >>= function
-          | Ok () -> Lwt.return_unit
-          | Error (`Msg m) ->
-            (* This might be because it hasn't been created yet, so retry. *)
-            Log.warn (fun f -> f "kill failed: %s (will retry in 10s)" m);
-            Lwt_unix.sleep 10.0 >>= aux
+          (* XXX patricoferris: Pkill processes belonging to user then deleter user? *)
+          Os.Macos.pkill ~user:t.user >>= fun () -> 
+          clean t
         ) else Lwt.return_unit  (* Process has already finished *)
       in
       Lwt.async aux
     );
   proc >>= fun r -> 
   copy_log >>= fun () ->
-  if Lwt.is_sleeping cancelled then Lwt.return (r :> (unit, [`Msg of string | `Cancelled]) result)
-  else Lwt_result.fail `Cancelled
-
-
+  begin match r with 
+    (* Failed builds should delete the builder user in case the next build is not the same user
+       but maybe the same UID. *)
+    | Error (`Msg _) -> 
+      clean t >>= fun () -> Lwt.return ()
+    | _ -> Lwt.return ()
+  end >>= fun () ->
+      if Lwt.is_sleeping cancelled then Lwt.return (r :> (unit, [`Msg of string | `Cancelled]) result)
+      else Lwt_result.fail `Cancelled
 
 let create ?state_dir:_ c = 
   {
     uid = c.uid;
     gid = 1000;
     tmpdir = "";
+    user = "";
     fallback_library_path = c.fallback_library_path;
     scoreboard = c.scoreboard;
   }
