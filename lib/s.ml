@@ -34,9 +34,6 @@ module type STORE = sig
   val result : t -> id -> string option Lwt.t 
   (** [result t id] is the path of the build result for [id], if present. *)
 
-  val result_path : t -> id -> string option Lwt.t 
-  (** The true filesystem path -- mainly used for ZFS *)
-
   val state_dir : t -> string
   (** [state_dir] is the path of a directory which can be used to store mutable
       state related to this store (e.g. an sqlite3 database). *)

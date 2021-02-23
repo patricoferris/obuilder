@@ -174,12 +174,39 @@ module Zfs = struct
     Os.sudo ["zfs"; "rename"; "--";
           Dataset.full_name t ds ~snapshot:old;
           Dataset.full_name t ds ~snapshot]
+
+  let mount t ds snapshot = 
+    Os.sudo_result ~pp:(fun ppf -> Fmt.pf ppf "Mounting snap %s" (Dataset.full_name t ds ~snapshot)) 
+    ["zfs"; "mount"; (Dataset.full_name t ds ~snapshot)]
+
+  let unmount t ds snapshot = 
+    Os.sudo_result ~pp:(fun ppf -> Fmt.pf ppf "Unmounting snap %s" (Dataset.full_name t ds ~snapshot)) 
+    ["zfs"; "unmount"; (Dataset.full_name t ds ~snapshot)]
 end
 
+let exists ?snapshot t ds =
+  match snapshot with 
+    | Some _ as snapshot ->
+      Zfs.(mount t ds default_snapshot) >>= fun _ ->
+      Lwt.return @@ Dataset.exists ?snapshot t ds >>= fun b -> 
+      Zfs.(unmount t ds default_snapshot) >>= fun _ ->
+      Lwt.return b
+    | None -> Lwt.return @@ Dataset.exists t ds
+
+let if_missing ?snapshot t ds fn =
+  exists ?snapshot t ds >>= fun b -> 
+  if b then Lwt.return_unit
+  else fn ()
+  
 let delete_if_exists t ds mode =
-  if Dataset.exists t ds then 
-  (Log.info (fun f -> f "Deleting %s\n" (Dataset.full_name t ds)); Zfs.destroy t ds mode)
-  else Lwt.return_unit
+  (* For checkdir to find the snap shot it must be mounted *)
+  exists t ds >>= fun b -> 
+  if b then begin  
+    (Log.info (fun f -> f "Deleting %s\n" (Dataset.full_name t ds)); Zfs.destroy t ds mode)
+  end else 
+    Lwt.return_unit
+
+let ( / ) = Filename.concat
 
 let state_dir t = Dataset.path t Dataset.state
 
@@ -189,7 +216,7 @@ let create ~prefix ~pool =
   (* Ensure any left-over temporary datasets are removed before we start. *)
   delete_if_exists t (Dataset.cache_tmp_group) `And_snapshots_and_clones >>= fun () ->
   Dataset.groups |> Lwt_list.iter_s (fun group ->
-      Dataset.if_missing t group (fun () -> Zfs.create t group) >>= fun () ->
+      if_missing t group (fun () -> Zfs.create t group) >>= fun () ->
       Zfs.chown ~user t group
     ) >>= fun () ->
   Lwt.return t
@@ -235,31 +262,36 @@ let build t ?base ~id fn =
         Lwt_result.return ()
       | Error _ as e ->
         Log.info (fun f -> f "zfs: build %S failed" id);
-        (* This is WRONG... the log file is still open here and that's why ZFS is refusing to shut... *)
-        let rec _aux () =
-          Zfs.destroy_result t ds `Only >>= begin function
-            | Ok () -> Lwt.return e
-            | _ ->
-              Lwt_unix.sleep 10. >>= fun () -> _aux ()
-          end 
-        in Lwt.return e
+        (* Unmount the snapshot... probably can't because the log is open...*)
+        Zfs.unmount t ds default_snapshot >>= fun _ ->
+        (* This is WRONG... *)
+        Zfs.destroy_result ~force:true t ds `Only >>= fun _ -> 
+        Lwt.return e
     )
     (fun ex ->
         Log.warn (fun f -> f "Uncaught exception from %S build function: %a" id Fmt.exn ex);
         raise ex
     )
 
-let result t id = Zfs.get_snap ~snapshot:default_snapshot t id
-
 let check_snap ~snapshot t id = 
   Zfs.get_snap ~snapshot:default_snapshot t id >|= Option.is_some
 
-let result_path t id =
+let result t id =
   let ds = Dataset.result id in
-  let path = Dataset.full_name t ds ~snapshot:default_snapshot in
-  Zfs.list_snapshots t ds >|= fun snaps -> 
-  Log.debug (fun f -> f "Looking for: %s in [%a]" path Fmt.(list string) snaps);
-  if List.exists (String.equal path) snaps then Some (Dataset.path t ds) else None  
+  (* Will only work if we mount the directory... when do we unmount it... *)
+  let path = Dataset.path t ds ~snapshot:default_snapshot in
+  let name = Dataset.full_name t ds ~snapshot:default_snapshot in 
+  Zfs.list_snapshots t ds >>= fun snaps -> 
+  if List.exists (String.equal name) snaps then 
+    begin 
+      Zfs.mount t ds default_snapshot >|= fun _ ->
+      Some path 
+    end 
+  else 
+    begin 
+      Log.info (fun f -> f "Didn't find %s in [%a]" name (Fmt.(list string)) snaps);
+      Lwt.return None
+    end 
 
 let get_cache t name =
   match Hashtbl.find_opt t.caches name with
@@ -308,16 +340,13 @@ let cache ~user t name : (string * (unit -> unit Lwt.t)) Lwt.t =
   let main_ds = Dataset.cache name in
   let tmp_ds = get_tmp_ds t name in
   (* Create the cache as an empty directory if it doesn't exist. *)
-  Dataset.if_missing t main_ds (fun  () -> Zfs.create t main_ds) >>= fun () ->
+  if_missing t main_ds (fun  () -> Zfs.create t main_ds) >>= fun () ->
   (* Ensure we have the snapshot. This is needed on first creation, and
      also to recover from crashes. *)
-  (* XXX patricoferris: if_missing uses checkdir which for a snap (on macOS at least) will not find anything *)
-  Zfs.get_snap_from_path ~snapshot:default_snapshot t main_ds >|= Option.is_some >>= begin function 
-    | false -> 
-        Zfs.chown ~user t main_ds >>= fun () ->
-        Zfs.snapshot t main_ds ~snapshot:default_snapshot
-    | true -> Lwt.return ()
-  end >>= fun () ->
+  if_missing t main_ds ~snapshot:default_snapshot (fun () ->
+    Zfs.chown ~user t main_ds >>= fun () ->
+    Zfs.snapshot t main_ds ~snapshot:default_snapshot
+  ) >>= fun () ->
   cache.n_clones <- cache.n_clones + 1;
   Zfs.clone t ~src:main_ds ~snapshot:default_snapshot tmp_ds >>= fun () ->
   let release () =
@@ -371,7 +400,8 @@ let delete_cache t name =
   if cache.n_clones > 0 then Lwt_result.fail `Busy
   else (
     let main_ds = Dataset.cache name in
-    if Dataset.exists t main_ds then (
+    exists t main_ds >>= fun b -> 
+    if b then (
       Zfs.destroy t main_ds `And_snapshots >>= fun () ->
       Lwt_result.return ()
     ) else Lwt_result.return ()
