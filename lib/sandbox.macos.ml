@@ -105,12 +105,12 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
   Os.with_pipe_from_child @@ fun ~r:out_r ~w:out_w ->
   let user = t.user in 
   let uid = string_of_int t.uid in 
-  Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ ->
+  (* Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ -> *)
   let set_homedir = Os.Macos.change_home_directory_for ~user ~homedir in 
   let osenv = config.Config.env in 
   List.iter (fun (p, v) -> Log.info (fun f -> f "%s=%s" p v)) osenv;
   let switch_prefix = ("OPAM_SWITCH_PREFIX", homedir / ".opam" / "default") in (* TODO: Remove *)
-  let env = convert_env (("HOME", homedir) :: ("TMPDIR", t.tmpdir) :: switch_prefix :: osenv) in 
+  let env = convert_env (("HOME", homedir) :: switch_prefix :: osenv) in 
   let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir ~scoreboard:t.scoreboard in 
   let cmd = run_as ~env ~cwd:config.Config.cwd ~user ~cmd:config.Config.argv in
   let stdout = `FD_move_safely out_w in
@@ -128,8 +128,8 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
         if Lwt.is_sleeping proc then (
           let pp f = Fmt.pf f "Should kill %S" homedir in
           (* XXX patricoferris: Pkill processes belonging to user then deleter user? *)
-          Os.Macos.pkill ~user:t.user >>= fun () -> 
-          clean t
+          Os.Macos.pkill ~user:t.user
+          (*clean t*)
         ) else Lwt.return_unit  (* Process has already finished *)
       in
       Lwt.async aux
@@ -140,11 +140,21 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
     (* Failed builds should delete the builder user in case the next build is not the same user
        but maybe the same UID. *)
     | Error (`Msg _) -> 
-      clean t >>= fun () -> Lwt.return ()
+      (* clean t >>= fun () -> Lwt.return () *) Lwt.return ()
     | _ -> Lwt.return ()
   end >>= fun () ->
       if Lwt.is_sleeping cancelled then Lwt.return (r :> (unit, [`Msg of string | `Cancelled]) result)
       else Lwt_result.fail `Cancelled
+
+let post_build () = 
+  let f = ["umount"; "-f"; "/usr/local"] in 
+  let pp ppf = Fmt.pf ppf "[ OSXFUSE ] " in 
+  Os.sudo_result ~pp f >>= fun _ -> Lwt.return ()
+
+let rec pre_build () =
+  let f = [ "obuilderfs"; "/Users/administrator/scoreboard"; "/usr/local"; "-o"; "allow_other" ] in
+  let pp ppf = Fmt.pf ppf "[ OSXFUSE ] " in
+  Os.sudo_result ~pp f >>= function Ok _ -> Lwt.return () | Error (`Msg m) -> (post_build () >>= fun _ -> pre_build ())
 
 let create ?state_dir:_ c = 
   {

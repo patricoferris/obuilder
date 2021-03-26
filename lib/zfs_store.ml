@@ -122,7 +122,7 @@ module Zfs = struct
     Log.debug (fun f -> f "Looking for: %s in [%a]" path Fmt.(list string) snaps);
     if List.exists (String.equal path) snaps then Some path else None 
 
-  let destroy ?(force=false) t ds mode =
+  let destroy ?(force=true) t ds mode =
     let opts =
       match mode with
       | `Only -> []
@@ -167,7 +167,7 @@ module Zfs = struct
 
   let rename t ~old ds =
     Log.info (fun f -> f "Rename from %s to %s\n" (Dataset.full_name t old) (Dataset.full_name t ds));
-    Os.sudo ["zfs"; "rename"; "--"; Dataset.full_name t old; Dataset.full_name t ds]
+    Os.sudo ["zfs"; "rename"; "-f"; "--"; Dataset.full_name t old; Dataset.full_name t ds]
 
   let rename_snapshot t ds ~old snapshot =
     Log.info (fun f -> f "Rename snap from %s to %s\n" (Dataset.full_name t ds ~snapshot:old) (Dataset.full_name t ds ~snapshot));
@@ -262,11 +262,11 @@ let build t ?base ~id fn =
         Lwt_result.return ()
       | Error _ as e ->
         Log.info (fun f -> f "zfs: build %S failed" id);
-        (* Unmount the snapshot... probably can't because the log is open...*)
-        Zfs.unmount t ds default_snapshot >>= fun _ ->
-        (* This is WRONG... *)
-        Zfs.destroy_result ~force:true t ds `Only >>= fun _ -> 
-        Lwt.return e
+        let rec aux () =
+          Zfs.destroy_result ~force:false t ds `Only >>= (function 
+            | Ok _ -> Lwt.return e
+            | Error (`Msg m) -> Log.info (fun f -> f "Error: %s" m); Lwt_unix.sleep 5. >>= fun () -> aux ())
+        in aux ()
     )
     (fun ex ->
         Log.warn (fun f -> f "Uncaught exception from %S build function: %a" id Fmt.exn ex);

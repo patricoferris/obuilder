@@ -180,7 +180,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
 
   let rec run_steps t ~(context:Context.t) ~base = function
     | [] -> 
-      Sandbox.clean t.sandbox >>= fun () -> 
+      Sandbox.post_build () >>= fun _ ->
       Lwt_result.return base
     | op :: ops ->
       context.log `Heading Fmt.(strf "%a" (pp_op ~context) op);
@@ -207,7 +207,8 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
 
   let rec build ~scope t context { Obuilder_spec.child_builds; from; ops } =
     let rec aux context = function
-      | [] -> Lwt_result.return context
+      | [] ->
+	Lwt_result.return context
       | (name, child_spec) :: child_builds ->
         context.Context.log `Heading Fmt.(strf "(build %S ...)" name);
         build ~scope t context child_spec >>!= fun child_result ->
@@ -215,6 +216,7 @@ module Make (Raw_store : S.STORE) (Sandbox : S.SANDBOX) = struct
         let context = Context.with_binding name child_result context in
         aux context child_builds
     in
+      Sandbox.pre_build () >>= fun _ ->
       aux context child_builds >>!= fun context ->
       let log = context.Context.log in 
       let id = Sha256.to_hex (Sha256.string from) in

@@ -110,6 +110,9 @@ module type SANDBOX = sig
   val clean : 
     t -> unit Lwt.t 
   (** [clean t] is called after a build completes and allows the sandbox to do any final tidying up *)
+
+  val pre_build : unit -> unit Lwt.t
+  val post_build : unit -> unit Lwt.t
 end
 
 module type BUILDER = sig
