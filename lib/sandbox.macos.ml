@@ -72,7 +72,7 @@ let from ~log ~from_stage (t : t) =
     t.tmpdir <- s; 
     Lwt.return (Ok () :> (unit, [ `Cancelled | `Msg of string ]) result)
 
-(* XXX Patricoferris: there must be a better way to deal with this! *)
+(* XXX(patricoferris): there must be a better way to deal with this! *)
 let convert_env env = 
   let paths = List.filter (fun (k, _) -> String.equal k "PATH") env in 
   let paths = 
@@ -105,12 +105,13 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
   Os.with_pipe_from_child @@ fun ~r:out_r ~w:out_w ->
   let user = t.user in 
   let uid = string_of_int t.uid in 
-  (* Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ -> *)
+  Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ -> 
   let set_homedir = Os.Macos.change_home_directory_for ~user ~homedir in 
   let osenv = config.Config.env in 
+  Os.pread @@ Os.Macos.get_tmpdir ~user >>= fun tmpdir ->
   List.iter (fun (p, v) -> Log.info (fun f -> f "%s=%s" p v)) osenv;
   let switch_prefix = ("OPAM_SWITCH_PREFIX", homedir / ".opam" / "default") in (* TODO: Remove *)
-  let env = convert_env (("HOME", homedir) :: switch_prefix :: osenv) in 
+  let env = convert_env (("HOME", homedir) :: ("TMPDIR", tmpdir) :: switch_prefix :: osenv) in 
   let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir ~scoreboard:t.scoreboard in 
   let cmd = run_as ~env ~cwd:config.Config.cwd ~user ~cmd:config.Config.argv in
   let stdout = `FD_move_safely out_w in
