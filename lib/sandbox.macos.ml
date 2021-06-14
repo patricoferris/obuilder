@@ -90,11 +90,12 @@ let convert_env env =
   if paths = "" then aux [] env else (paths :: aux [] env) (* Add the filtered paths *)
 
 let clean (t : t) = 
-  (* Os.(sudo (Macos.remove_link ~uid:t.uid ~scoreboard:t.scoreboard)) >>= fun () -> *)
+  (* Os.(sudo (Macos.remove_link ~uid:t.uid ~scoreboard:t.scoreboard)) >>= fun () -> 
   Log.info (fun f -> f "Deleting user %s" t.user);
   Os.Macos.delete_user ~user:t.user >|= function 
     | Ok () -> ()
-    | _ -> Log.err (fun f -> f "Failed to delete user: %s" t.user); ()
+    | _ -> Log.err (fun f -> f "Failed to delete user: %s" t.user); () *)
+  Lwt.return ()
 
 (* A build step in macos: 
    - Should be properly sandboxed using sandbox-exec (coming soon...)
@@ -147,7 +148,7 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
       if Lwt.is_sleeping cancelled then Lwt.return (r :> (unit, [`Msg of string | `Cancelled]) result)
       else Lwt_result.fail `Cancelled
 
-let post_build () = 
+let post_build () =
   let f = ["umount"; "-f"; "/usr/local"] in 
   let pp ppf = Fmt.pf ppf "[ OSXFUSE ] " in 
   Os.sudo_result ~pp f >>= fun _ -> Lwt.return ()

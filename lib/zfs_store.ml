@@ -129,11 +129,11 @@ module Zfs = struct
       | `And_snapshots -> ["-r"]
       | `And_snapshots_and_clones -> ["-R"]
     in
-    let opts = if force then "-f" :: opts else opts in 
+    let opts = if force then "-f" :: "-r" :: opts else opts in 
     Log.info (fun f -> f "Destroying %s\n" (Dataset.full_name t ds));
     Os.sudo (["zfs"; "destroy"] @ opts @ ["--"; Dataset.full_name t ds])
 
-  let destroy_result ?(force=false) t ds mode =
+  let destroy_result ?(force=true) t ds mode =
     let opts =
       match mode with
       | `Only -> []
@@ -151,7 +151,7 @@ module Zfs = struct
       | `Immediate -> []
     in
     Log.info (fun f -> f "Destroying snapshot %s\n" (Dataset.full_name t ds ^ "@" ^ snapshot));
-    Os.sudo (["zfs"; "destroy"] @ opts @ ["--"; Dataset.full_name t ds ^ "@" ^ snapshot])
+    Os.sudo (["zfs"; "destroy"; "-f"] @ opts @ ["--"; Dataset.full_name t ds ^ "@" ^ snapshot])
 
   let clone t ~src ~snapshot dst =
     Log.info (fun f -> f "Cloning %s\n" (Dataset.full_name t dst));
@@ -263,7 +263,7 @@ let build t ?base ~id fn =
       | Error _ as e ->
         Log.info (fun f -> f "zfs: build %S failed" id);
         let rec aux () =
-          Zfs.destroy_result ~force:false t ds `Only >>= (function 
+          Zfs.destroy_result ~force:true t ds `Only >>= (function 
             | Ok _ -> Lwt.return e
             | Error (`Msg m) -> Log.info (fun f -> f "Error: %s" m); Lwt_unix.sleep 5. >>= fun () -> aux ())
         in aux ()
