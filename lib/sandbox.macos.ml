@@ -108,13 +108,8 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
   let uid = string_of_int t.uid in 
   Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ -> 
   let set_homedir = Os.Macos.change_home_directory_for ~user ~homedir in 
+  let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir ~scoreboard:t.scoreboard in
   let osenv = config.Config.env in 
-  Os.pread @@ Os.Macos.get_tmpdir ~user >>= fun tmpdir ->
-  List.iter (fun (p, v) -> Log.info (fun f -> f "%s=%s" p v)) osenv;
-  let switch_prefix = ("OPAM_SWITCH_PREFIX", homedir / ".opam" / "default") in (* TODO: Remove *)
-  let env = convert_env (("HOME", homedir) :: ("TMPDIR", tmpdir) :: switch_prefix :: osenv) in 
-  let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir ~scoreboard:t.scoreboard in 
-  let cmd = run_as ~env ~cwd:config.Config.cwd ~user ~cmd:config.Config.argv in
   let stdout = `FD_move_safely out_w in
   let stderr = stdout in
   let copy_log = copy_to_log ~src:out_r ~dst:log in
@@ -123,6 +118,10 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
     let pp f = Os.pp_cmd f config.argv in
     Os.sudo_result ~pp set_homedir >>= fun _ ->
     Os.sudo_result ~pp update_scoreboard >>= fun _ ->
+    Os.pread @@ Os.Macos.get_tmpdir ~user >>= fun tmpdir ->
+    let switch_prefix = ("OPAM_SWITCH_PREFIX", homedir / ".opam" / "default") in (* TODO: Remove *)
+    let env = convert_env (("HOME", homedir) :: ("TMPDIR", tmpdir) :: switch_prefix :: osenv) in
+    let cmd = run_as ~env ~cwd:config.Config.cwd ~user ~cmd:config.Config.argv in
     Os.exec_result ?stdin ~stdout ~stderr ~pp cmd
   in
   Lwt.on_termination cancelled (fun () ->
