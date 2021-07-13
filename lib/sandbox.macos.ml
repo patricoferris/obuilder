@@ -26,9 +26,25 @@ let version = "macos-sandboxing"
 
 let ( / ) = Filename.concat 
 
-let run_as ~user ~cmd =
-  let command = 
-    "su" :: "-l" :: user :: "-c" :: "--" :: {|"$0" "$@"|} :: cmd
+let run_as ~env ~user ~cmd =
+  let path =
+    [ "/Users/administrator/ocaml/4.12.0/bin" (* TODO: maybe change this for a more standard directory? *)
+    ; "/opt/homebrew/bin" (* NOTE: homebrew on macOS/arm64 *)
+    ; "/opt/homebrew/sbin" (* NOTE: homebrew on macOS/arm64 *)
+    ; "/usr/local/bin" (* NOTE: homebrew on macOS/x86_64 *)
+    ; "/usr/bin"
+    ; "/bin"
+    ; "/usr/sbin"
+    ; "/sbin"
+    ]
+  in
+  let path = String.concat ":" path in
+  let command =
+    let path = Filename.quote path in
+    let env = String.concat " " (List.map (fun (k, v) -> k^"="^v) env) in
+    "su" :: "-l" :: user :: "-c" :: "--" ::
+    Fmt.str {|env PATH=%s HOMEBREW_NO_AUTO_UPDATE=1 %s "$0" "$@"|} path env ::
+    cmd
   in
   Log.debug (fun f -> f "Running: %s" (String.concat " " command)); 
   command
@@ -83,15 +99,18 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
   Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ -> 
   let set_homedir = Os.Macos.change_home_directory_for ~user ~homedir in 
   let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir ~scoreboard:t.scoreboard in
+  let osenv = config.Config.env in
   let stdout = `FD_move_safely out_w in
   let stderr = stdout in
   let copy_log = copy_to_log ~src:out_r ~dst:log in
   let proc =
     let stdin = Option.map (fun x -> `FD_move_safely x) stdin in
-    let pp f = Os.pp_cmd f config.argv in
+    let pp f = Os.pp_cmd f config.Config.argv in
     Os.sudo_result ~pp set_homedir >>= fun _ ->
     Os.sudo_result ~pp update_scoreboard >>= fun _ ->
-    let cmd = run_as ~user ~cmd:config.Config.argv in
+    Os.pread @@ Os.Macos.get_tmpdir ~user >>= fun tmpdir ->
+    let env = ("TMPDIR", tmpdir) :: osenv in
+    let cmd = run_as ~env ~user ~cmd:config.Config.argv in
     Os.ensure_dir config.Config.cwd;
     Os.exec_result ?stdin ~stdout ~stderr ~pp ~cwd:config.Config.cwd cmd
   in
