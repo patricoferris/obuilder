@@ -28,7 +28,7 @@ let ( / ) = Filename.concat
 
 let run_as ~user ~cmd =
   let command = 
-    "su" :: "-l" :: user :: "--" :: "-c" :: "--" :: {|"$0" "$@"|} :: cmd
+    "su" :: "-l" :: user :: "-c" :: "--" :: {|"$0" "$@"|} :: cmd
   in
   Log.debug (fun f -> f "Running: %s" (String.concat " " command)); 
   command
