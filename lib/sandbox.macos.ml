@@ -92,7 +92,8 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
     Os.sudo_result ~pp set_homedir >>= fun _ ->
     Os.sudo_result ~pp update_scoreboard >>= fun _ ->
     let cmd = run_as ~user ~cmd:config.Config.argv in
-    Os.exec_result ?stdin ~stdout ~stderr ~pp cmd
+    Os.ensure_dir config.Config.cwd;
+    Os.exec_result ?stdin ~stdout ~stderr ~pp ~cwd:config.Config.cwd cmd
   in
   Lwt.on_termination cancelled (fun () ->
   let rec aux () =
