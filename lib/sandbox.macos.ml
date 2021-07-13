@@ -26,21 +26,12 @@ let version = "macos-sandboxing"
 
 let ( / ) = Filename.concat 
 
-let run_as ~env ~cwd ~user ~cmd = 
-  let cwd = "." ^ cwd in 
-  (* For handling `Workdir' statements - make and change *)
-  let cwd cmd = "mkdir -p " ^ cwd ^ " && cd " ^ cwd ^ " && " ^ String.concat " " cmd in 
+let run_as ~user ~cmd =
   let command = 
-    if List.hd cmd = "rsync" 
-    then ["sudo";] @ cmd
-    else begin 
-      match cmd with 
-        | "/bin/bash" :: "-c" :: cmd -> ["sudo"; "-u"; user; "-i"; "env"] @ env @ [ "/bin/bash"; "-c"; cwd cmd]
-        | cmd -> ["sudo"; "-u"; user; "-i"; "/bin/bash"; "-c"; cwd cmd]
-    end 
+    "su" :: "-l" :: user :: "--" :: "-c" :: "--" :: {|"$0" "$@"|} :: cmd
   in
   Log.debug (fun f -> f "Running: %s" (String.concat " " command)); 
-    command 
+  command
 
 
 let copy_to_log ~src ~dst =
@@ -72,23 +63,6 @@ let from ~log ~from_stage (t : t) =
     t.tmpdir <- s; 
     Lwt.return (Ok () :> (unit, [ `Cancelled | `Msg of string ]) result)
 
-(* XXX(patricoferris): there must be a better way to deal with this! *)
-let convert_env env = 
-  let paths = List.filter (fun (k, _) -> String.equal k "PATH") env in 
-  let paths = 
-    List.map (fun (_, p) -> 
-      match Astring.String.cut ~sep:":" p with 
-        | Some (path, "$PATH") -> path
-        | _ -> "") paths  |> List.filter (fun s -> not @@ String.equal "" s)
-  in 
-  let paths = if List.length paths > 0 then "PATH=" ^ String.concat ":" paths ^ ":$PATH" else "" in
-  let rec aux acc = function 
-    | []  -> List.rev acc 
-    | ("PATH", _) :: xs -> aux acc xs (* Remove the paths *)
-    | (k, v)::xs -> aux ((k ^ "=" ^ v) :: acc) xs 
-  in 
-  if paths = "" then aux [] env else (paths :: aux [] env) (* Add the filtered paths *)
-
 let clean (t : t) = 
   (* Os.(sudo (Macos.remove_link ~uid:t.uid ~scoreboard:t.scoreboard)) >>= fun () -> 
   Log.info (fun f -> f "Deleting user %s" t.user);
@@ -109,7 +83,6 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
   Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ -> 
   let set_homedir = Os.Macos.change_home_directory_for ~user ~homedir in 
   let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir ~scoreboard:t.scoreboard in
-  let osenv = config.Config.env in 
   let stdout = `FD_move_safely out_w in
   let stderr = stdout in
   let copy_log = copy_to_log ~src:out_r ~dst:log in
@@ -118,10 +91,7 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
     let pp f = Os.pp_cmd f config.argv in
     Os.sudo_result ~pp set_homedir >>= fun _ ->
     Os.sudo_result ~pp update_scoreboard >>= fun _ ->
-    Os.pread @@ Os.Macos.get_tmpdir ~user >>= fun tmpdir ->
-    let switch_prefix = ("OPAM_SWITCH_PREFIX", homedir / ".opam" / "default") in (* TODO: Remove *)
-    let env = convert_env (("HOME", homedir) :: ("TMPDIR", tmpdir) :: switch_prefix :: osenv) in
-    let cmd = run_as ~env ~cwd:config.Config.cwd ~user ~cmd:config.Config.argv in
+    let cmd = run_as ~user ~cmd:config.Config.argv in
     Os.exec_result ?stdin ~stdout ~stderr ~pp cmd
   in
   Lwt.on_termination cancelled (fun () ->
