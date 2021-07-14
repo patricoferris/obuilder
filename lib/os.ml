@@ -137,7 +137,7 @@ let with_pipe_between_children fn =
 
 let pread ?stderr argv =
   with_pipe_from_child @@ fun ~r ~w ->
-  let child = exec ~stdout:(`FD_move_safely w) ?stderr argv in
+  let child = exec ~stdin:`Close ~stdout:(`FD_move_safely w) ?stderr argv in
   let r = Lwt_io.(of_fd ~mode:input) r in
   Lwt.finalize
     (fun () -> Lwt_io.read r)
