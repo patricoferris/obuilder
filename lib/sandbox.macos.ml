@@ -27,23 +27,10 @@ let version = "macos-sandboxing"
 let ( / ) = Filename.concat 
 
 let run_as ~env ~user ~cmd =
-  let path =
-    [ "/Users/administrator/ocaml/4.12.0/bin" (* TODO: maybe change this for a more standard directory? *)
-    ; "/opt/homebrew/bin" (* NOTE: homebrew on macOS/arm64 *)
-    ; "/opt/homebrew/sbin" (* NOTE: homebrew on macOS/arm64 *)
-    ; "/usr/local/bin" (* NOTE: homebrew on macOS/x86_64 *)
-    ; "/usr/bin"
-    ; "/bin"
-    ; "/usr/sbin"
-    ; "/sbin"
-    ]
-  in
-  let path = String.concat ":" path in
   let command =
-    let path = Filename.quote path in
     let env = String.concat " " (List.map (fun (k, v) -> Filename.quote (k^"="^v)) env) in
     "su" :: "-l" :: user :: "-c" :: "--" ::
-    Printf.sprintf {|env PATH=%s HOMEBREW_NO_AUTO_UPDATE=1 %s "$0" "$@"|} path env ::
+    Printf.sprintf {|source ~/.obuilder_profile.sh && env %s "$0" "$@"|} env ::
     cmd
   in
   Log.debug (fun f -> f "Running: %s" (String.concat " " command)); 
