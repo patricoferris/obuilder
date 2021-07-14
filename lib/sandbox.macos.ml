@@ -41,9 +41,9 @@ let run_as ~env ~user ~cmd =
   let path = String.concat ":" path in
   let command =
     let path = Filename.quote path in
-    let env = String.concat " " (List.map (fun (k, v) -> k^"="^v) env) in
+    let env = String.concat " " (List.map (fun (k, v) -> Filename.quote (k^"="^v)) env) in
     "su" :: "-l" :: user :: "-c" :: "--" ::
-    Fmt.str {|env PATH=%s HOMEBREW_NO_AUTO_UPDATE=1 %s "$0" "$@"|} path env ::
+    Printf.sprintf {|env PATH=%s HOMEBREW_NO_AUTO_UPDATE=1 %s "$0" "$@"|} path env ::
     cmd
   in
   Log.debug (fun f -> f "Running: %s" (String.concat " " command)); 
