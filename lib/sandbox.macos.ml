@@ -109,6 +109,7 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
     Os.sudo_result ~pp set_homedir >>= fun _ ->
     Os.sudo_result ~pp update_scoreboard >>= fun _ ->
     Os.pread @@ Os.Macos.get_tmpdir ~user >>= fun tmpdir ->
+    let tmpdir = List.hd (String.split_on_char '\n' tmpdir) in
     let env = ("TMPDIR", tmpdir) :: osenv in
     let cmd = run_as ~env ~user ~cmd:config.Config.argv in
     Os.ensure_dir config.Config.cwd;
