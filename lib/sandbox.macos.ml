@@ -75,33 +75,47 @@ let clean (t : t) =
     | _ -> Log.err (fun f -> f "Failed to delete user: %s" t.user); () *)
   Lwt.return ()
 
+let mount ~cwd ~pp ~homedir {Config.Mount.src; dst} =
+  let dst = Filename.concat homedir dst in
+  Os.ensure_dir dst;
+  Os.sudo_result ~cwd ~pp (Os.Macos.mount ~src ~dst) >>= fun _ ->
+  Lwt.return ()
+
 (* A build step in macos: 
    - Should be properly sandboxed using sandbox-exec (coming soon...)
    - Umask g+w to work across users if restored from a snapshot
    - Set the new home directory of the user, to the new hash
    - Should be executed by the underlying user (t.uid) *)
-let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
+let run ~cancelled ?stdin:stdin ~log (t : t)
+    {Config.cwd;
+     argv;
+     hostname = _; (* TODO? *)
+     user = _; (* TODO? *)
+     env;
+     mounts;
+     network = _; (* TODO? *)
+    } homedir =
   Os.with_pipe_from_child @@ fun ~r:out_r ~w:out_w ->
   let user = t.user in 
   let uid = string_of_int t.uid in 
   Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ -> 
   let set_homedir = Os.Macos.change_home_directory_for ~user ~homedir in 
   let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir ~scoreboard:t.scoreboard in
-  let osenv = config.Config.env in
   let stdout = `FD_move_safely out_w in
   let stderr = stdout in
   let copy_log = copy_to_log ~src:out_r ~dst:log in
   let proc =
     let stdin = Option.map (fun x -> `FD_move_safely x) stdin in
-    let pp f = Os.pp_cmd f config.Config.argv in
+    let pp f = Os.pp_cmd f argv in
     Os.sudo_result ~pp set_homedir >>= fun _ ->
     Os.sudo_result ~pp update_scoreboard >>= fun _ ->
     Os.pread @@ Os.Macos.get_tmpdir ~user >>= fun tmpdir ->
     let tmpdir = List.hd (String.split_on_char '\n' tmpdir) in
-    let env = ("TMPDIR", tmpdir) :: osenv in
-    let cmd = run_as ~env ~user ~cmd:config.Config.argv in
-    Os.ensure_dir config.Config.cwd;
-    Os.exec_result ?stdin ~stdout ~stderr ~pp ~cwd:config.Config.cwd cmd
+    let env = ("TMPDIR", tmpdir) :: env in
+    let cmd = run_as ~env ~user ~cmd:argv in
+    Os.ensure_dir cwd;
+    Lwt_list.iter_s (mount ~cwd ~pp ~homedir) mounts >>= fun () ->
+    Os.exec_result ?stdin ~stdout ~stderr ~pp ~cwd cmd
   in
   Lwt.on_termination cancelled (fun () ->
   let rec aux () =
