@@ -60,7 +60,8 @@ let from ~log ~from_stage (t : t) =
     Os.Macos.create_new_user ~username ~home ~uid ~gid:"1000" >>= fun _ ->
     Os.Macos.copy_template ~base:("/Users/" ^ from_stage) ~local:home >>= fun _ -> 
     Os.(sudo @@ Macos.update_scoreboard ~uid:t.uid ~homedir:home ~scoreboard:t.scoreboard) >>= fun _ ->
-    Os.sudo [ "chown"; "-R"; ":1000"; home ] >>= fun () -> 
+    Os.sudo [ "chown"; "-R"; ":1000"; home ] >>= fun () ->
+    Os.sudo [ "chmod"; "-R"; "g+w"; home ] >>= fun () ->
     Os.pread @@ Os.Macos.get_tmpdir ~user:username >>= fun s -> 
     Log.info (fun f -> f "Setting temporary directory to %s" s);
     t.tmpdir <- s; 
