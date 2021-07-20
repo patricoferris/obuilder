@@ -152,10 +152,17 @@ let check_dir x =
   | _ -> Fmt.failwith "Exists, but is not a directory: %S" x
   | exception Unix.Unix_error(Unix.ENOENT, _, _) -> `Missing
 
-let ensure_dir path =
+let rec mkdir_p path =
+  let dirname = Filename.dirname path in
+  if not (String.equal dirname path) then begin
+    ensure_dir dirname;
+  end;
+  Unix.mkdir path 0o777
+
+and ensure_dir path =
   match check_dir path with
   | `Present -> ()
-  | `Missing -> Unix.mkdir path 0o777
+  | `Missing -> mkdir_p path
 
 module Macos = struct 
   let ( / ) = Filename.concat  
