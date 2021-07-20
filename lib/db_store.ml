@@ -59,12 +59,14 @@ module Make (Raw : S.STORE) = struct
       Lwt_result.return (`Loaded, id)
     | None ->
       Raw.build t.raw ?base ~id (fun dir ->
-          let log_file = dir / "log" in
+          (* Probably a bad workaround to deal with remounting ZFS dirs on macOS *)
+          let log_file = "/tmp" / (Fmt.str "%s-log" id) in
           if Sys.file_exists log_file then Unix.unlink log_file;
           Build_log.create log_file >>= fun log ->
           Lwt.wakeup set_log log;
           fn ~cancelled ~log dir >>= fun res -> 
           finish_log ~set_log (Lwt.return log) >>= fun _ ->
+          Os.copy ~src:log_file ~dst:(dir / "log") >>= fun _ ->
           Lwt.return res
         )
       >>!= fun () ->

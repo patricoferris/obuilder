@@ -146,6 +146,9 @@ let pread ?stderr argv =
   child >>= fun () ->
   Lwt.return data
 
+let copy ~src ~dst =
+  exec ["cp"; src; dst]
+
 let check_dir x =
   match Unix.lstat x with
   | Unix.{ st_kind = S_DIR; _ } -> `Present
@@ -186,7 +189,7 @@ module Macos = struct
           sudo (dscl @ ["-passwd"; user; "hello"]) >>= fun _ -> Lwt.return_ok ()
     end 
 
-  let delete_user ~user = 
+  let delete_user ~user =
     user_exists ~user >>= begin function
       | false -> 
         Log.info (fun f -> f "Not deleting %s as they don't exists" user);
@@ -198,19 +201,35 @@ module Macos = struct
           sudo_result ~pp:(pp "Deleting") delete
     end
 
-  let pkill ~user = 
+  let pkill ~user =
     let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
     let delete = ["pkill"; "-u"; user ] in 
     sudo_result ~pp:(pp "Killing") delete >|= function 
       | Ok () -> () 
       | _ -> Log.warn (fun f -> f "Failed to pkill for %s" user); ()
 
-  let copy_template ~base ~local = 
+  let copy_template ~base ~local =
     let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
     sudo_result ~pp:(pp "Rsync Brew") ["rsync"; "-avq"; base ^ "/"; local]
+ 
+  (* A little annoying this ties macOS and ZFS together... *)
+  let zfs_unset_mount ~dataset =
+    let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in
+    sudo_result ~pp:(pp "Unmouting") ["zfs"; "unmount"; "-f"; dataset ] >>= fun _ ->
+    (* Temporary fix -- shouldn't need to remount *)
+    sudo_result ~pp:(pp "Restoring mountpoint") ["zfs"; "set"; Fmt.str "mountpoint=/Volumes/%s" dataset; dataset ] >>= fun _ ->
+    sudo_result ~pp:(pp "Mount") ["zfs"; "mount"; dataset ]
+
+  let zfs_set_mount ~mountpoint ~dataset =
+    let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in
+    let mountpoint = Fmt.str "mountpoint=%s" mountpoint in
+    (* Forcefully remove in order to set mountpoint... probably breaks logging :( *)
+    sudo_result ~pp:(pp "Unmouting") ["zfs"; "unmount"; "-f"; dataset ] >>= fun _ ->
+    sudo_result ~pp:(pp "Set mountpoint") ["zfs"; "set"; mountpoint; dataset ] >>= fun _ ->
+    sudo_result ~pp:(pp "Mount") ["zfs"; "mount"; dataset ]
 
   let change_home_directory_for ~user ~homedir = 
-    ["dscl"; "."; "-create"; "/Users/" ^ user ; "NFSHomeDirectory"; homedir ]
+    [ "dscl"; "."; "-create"; "/Users/" ^ user ; "NFSHomeDirectory"; homedir ]
 
   (* Used by the FUSE filesystem to indicate where a users home directory should be ...*)
   let update_scoreboard ~uid ~scoreboard ~homedir = 

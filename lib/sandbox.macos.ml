@@ -23,7 +23,6 @@ type config = {
 
 let version = "macos-sandboxing"
 
-
 let ( / ) = Filename.concat 
 
 let run_as ~env ~user ~cmd =
@@ -49,25 +48,40 @@ let copy_to_log ~src ~dst =
 let user_name ~prefix ~uid ~from = 
   Fmt.str "%s%s-%s" prefix uid from
 
+let prefix = "mac"
+
+(* For macOS there are three important directories:
+     - The base image currently stored at /Users/<base-image> (one day it might come from docker)
+     - The snapshot (datatset) directory provided by the storage backend (e.g. ZFS)
+     - A fixed home directory (/Users/<user-name> which is guaranteed to be unique per uid)
+
+  The snapshot is mounted to the fixed home directory in order to not confuse tools that don't
+  expect $HOME to be changing from underneath them (e.g. ocamlfind)
+*)
 let from ~log ~from_stage (t : t) =
   log `Heading (Fmt.strf "SYS %s" from_stage);
   let id = Sha256.to_hex (Sha256.string from_stage) in
-  let home = "/Volumes/tank/result" / id in 
-  let uid = string_of_int t.uid in 
-  let username = user_name ~prefix:"mac" ~uid ~from:from_stage in 
+  let dataset = Fmt.str "tank/result/%s" id in (* TODO: the user could specify different ZFS names than 'tank'*)
+  let dataset_dir = "/Volumes/" ^ dataset in
+  let uid = string_of_int t.uid in
+  let username = user_name ~prefix ~uid ~from:from_stage in
+  let home = Fmt.str "/Users/%s" username in
   t.user <- username;
   fun ~cancelled:_ ~log:_ (_ : string) ->
     Os.Macos.create_new_user ~username ~home ~uid ~gid:"1000" >>= fun _ ->
-    Os.Macos.copy_template ~base:("/Users/" ^ from_stage) ~local:home >>= fun _ -> 
+    Os.ensure_dir home;
+    Os.Macos.copy_template ~base:("/Users/" ^ from_stage) ~local:dataset_dir >>= fun _ ->
+    Os.Macos.zfs_set_mount ~mountpoint:home ~dataset >>= fun _ ->
     Os.(sudo @@ Macos.update_scoreboard ~uid:t.uid ~homedir:home ~scoreboard:t.scoreboard) >>= fun _ ->
     Os.sudo [ "chown"; "-R"; ":1000"; home ] >>= fun () ->
     Os.sudo [ "chmod"; "-R"; "g+w"; home ] >>= fun () ->
-    Os.pread @@ Os.Macos.get_tmpdir ~user:username >>= fun s -> 
+    Os.pread @@ Os.Macos.get_tmpdir ~user:username >>= fun s ->
     Log.info (fun f -> f "Setting temporary directory to %s" s);
-    t.tmpdir <- s; 
+    t.tmpdir <- s;
+    Os.Macos.zfs_unset_mount ~dataset >>= fun _ ->
     Lwt.return (Ok () :> (unit, [ `Cancelled | `Msg of string ]) result)
 
-let clean (t : t) = 
+let clean (t : t) =
   (* Os.(sudo (Macos.remove_link ~uid:t.uid ~scoreboard:t.scoreboard)) >>= fun () -> 
   Log.info (fun f -> f "Deleting user %s" t.user);
   Os.Macos.delete_user ~user:t.user >|= function 
@@ -80,34 +94,40 @@ let clean (t : t) =
    - Umask g+w to work across users if restored from a snapshot
    - Set the new home directory of the user, to the new hash
    - Should be executed by the underlying user (t.uid) *)
-let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
+let run ~cancelled ?stdin:stdin ~log (t : t) config dataset_dir =
   Os.with_pipe_from_child @@ fun ~r:out_r ~w:out_w ->
-  let user = t.user in 
-  let uid = string_of_int t.uid in 
-  Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ -> 
-  let set_homedir = Os.Macos.change_home_directory_for ~user ~homedir in 
+  let user = t.user in
+  let uid = string_of_int t.uid in
+  let homedir = Fmt.str "/Users/%s" t.user in
+  Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ ->
+  let set_homedir = Os.Macos.change_home_directory_for ~user ~homedir in
   let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir ~scoreboard:t.scoreboard in
   let osenv = config.Config.env in
   let stdout = `FD_move_safely out_w in
   let stderr = stdout in
   let copy_log = copy_to_log ~src:out_r ~dst:log in
+  (* Very brittle way of extracting the dataset from the path... works for now *)
+  let dataset = String.split_on_char '/' dataset_dir |> List.tl |> List.tl |> String.concat "/" in
   let proc =
     let stdin = Option.map (fun x -> `FD_move_safely x) stdin in
     let pp f = Os.pp_cmd f config.Config.argv in
     Os.sudo_result ~pp set_homedir >>= fun _ ->
     Os.sudo_result ~pp update_scoreboard >>= fun _ ->
+    Os.Macos.zfs_set_mount ~mountpoint:homedir ~dataset >>= fun _ ->
     Os.pread @@ Os.Macos.get_tmpdir ~user >>= fun tmpdir ->
     let tmpdir = List.hd (String.split_on_char '\n' tmpdir) in
     let env = ("TMPDIR", tmpdir) :: osenv in
     let cmd = run_as ~env ~user ~cmd:config.Config.argv in
     Os.ensure_dir config.Config.cwd;
-    Os.exec_result ?stdin ~stdout ~stderr ~pp ~cwd:config.Config.cwd cmd
+    Os.exec_result ?stdin ~stdout ~stderr ~pp ~cwd:config.Config.cwd cmd >>= fun res ->
+    Os.Macos.zfs_unset_mount ~dataset >>= fun _ ->
+    Lwt.return res
   in
   Lwt.on_termination cancelled (fun () ->
   let rec aux () =
         if Lwt.is_sleeping proc then (
           let pp f = Fmt.pf f "Should kill %S" homedir in
-          (* XXX patricoferris: Pkill processes belonging to user then deleter user? *)
+          (* XXX patricoferris: Pkill processes belonging to user then delete user? *)
           Os.Macos.pkill ~user:t.user
           (*clean t*)
         ) else Lwt.return_unit  (* Process has already finished *)
