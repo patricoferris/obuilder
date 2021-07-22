@@ -221,4 +221,7 @@ module Macos = struct
 
   let get_tmpdir ~user = 
     ["sudo"; "-u"; user; "-i"; "getconf"; "DARWIN_USER_TEMP_DIR"]
+
+  let mount ~src ~dst =
+    ["mount"; src; dst]
 end 
