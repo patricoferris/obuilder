@@ -198,16 +198,52 @@ module Macos = struct
           sudo_result ~pp:(pp "Deleting") delete
     end
 
-  let pkill ~user = 
-    let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
-    let delete = ["pkill"; "-u"; user ] in 
-    sudo_result ~pp:(pp "Killing") delete >|= function 
-      | Ok () -> () 
-      | _ -> Log.warn (fun f -> f "Failed to pkill for %s" user); ()
+  (* HACK: I couldn't find a way to get the PID of the running command for the macOS sandbox.
+   * So here we list processes and match on the command... to get the PID... *)
+  let find_pid ~cmd =
+    pread ["sudo"; "ps"; "-eo"; "pid,args"] >|= fun s ->
+    let lines = Astring.String.cuts ~sep:"\n" s in
+    let pid_arg s =
+      let lst = Astring.String.cuts ~sep:" " s in
+      let lst = List.filter (fun s -> String.length s <> 0) lst in
+      if List.length lst > 2 then Some (List.hd lst, String.concat " " (List.tl lst)) else None
+    in
+    let pid_args = List.filter_map pid_arg lines in
+    Option.map fst (List.find_opt (fun (_, c) -> Log.info (fun f -> f "Does %s match %s" cmd c); String.equal cmd c) pid_args)
 
-  let copy_template ~base ~local = 
-    let pp s ppf = Fmt.pf ppf "[ Mac ] %s\n" s in 
-    sudo_result ~pp:(pp "Rsync Brew") ["rsync"; "-avq"; base ^ "/"; local]
+  let descendants ~pid =
+    if String.length pid = 0 then Lwt.return []
+    else
+    Lwt.catch
+      (fun () -> pread ["sudo"; "pgrep"; "-P"; pid ] >|= fun s -> Astring.String.cuts ~sep:"\n" s)
+      (* Errors if there are none, probably errors for other reasons too... *)
+      (fun _ -> Lwt.return [])
+
+  let pkill ~pid =
+    let pp s ppf = Fmt.pf ppf "[ %s ]" s in
+    if String.length pid = 0 then (Log.warn (fun f -> f "Empty PID"); Lwt.return ())
+    else begin
+      let delete = ["pkill"; "-9"; "-P"; pid ] in
+      sudo_result ~pp:(pp "PKILL") delete >>= fun t ->
+        match t with
+        | Ok () -> Lwt.return ()
+        | Error (`Msg m) -> (
+          Log.warn (fun f -> f "Failed to pkill for %s because %s" pid m);
+          Lwt.return ()
+        )
+    end
+
+  let kill_all_descendants ~pid =
+    let rec kill pid : unit Lwt.t =
+      descendants ~pid >>= fun ds ->
+      Lwt_list.iter_s kill ds >>= fun () ->
+      pkill ~pid
+    in
+      kill pid
+
+  let copy_template ~base ~local =
+    let pp s ppf = Fmt.pf ppf "[ %s ]" s in
+    sudo_result ~pp:(pp "RSYNC") ["rsync"; "-avq"; base ^ "/"; local]
 
   let change_home_directory_for ~user ~homedir = 
     ["dscl"; "."; "-create"; "/Users/" ^ user ; "NFSHomeDirectory"; homedir ]
