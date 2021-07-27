@@ -83,14 +83,15 @@ let clean (t : t) =
 let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
   Os.with_pipe_from_child @@ fun ~r:out_r ~w:out_w ->
   let user = t.user in 
-  let uid = string_of_int t.uid in 
-  Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ -> 
-  let set_homedir = Os.Macos.change_home_directory_for ~user ~homedir in 
+  let uid = string_of_int t.uid in
+  Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ ->
+  let set_homedir = Os.Macos.change_home_directory_for ~user ~homedir in
   let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir ~scoreboard:t.scoreboard in
   let osenv = config.Config.env in
   let stdout = `FD_move_safely out_w in
   let stderr = stdout in
   let copy_log = copy_to_log ~src:out_r ~dst:log in
+  let run_cmd : string list ref = ref [] in
   let proc =
     let stdin = Option.map (fun x -> `FD_move_safely x) stdin in
     let pp f = Os.pp_cmd f config.Config.argv in
@@ -100,15 +101,18 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
     let tmpdir = List.hd (String.split_on_char '\n' tmpdir) in
     let env = ("TMPDIR", tmpdir) :: osenv in
     let cmd = run_as ~env ~user ~cmd:config.Config.argv in
+    run_cmd := cmd;
     Os.ensure_dir config.Config.cwd;
     Os.exec_result ?stdin ~stdout ~stderr ~pp ~cwd:config.Config.cwd cmd
   in
   Lwt.on_termination cancelled (fun () ->
   let rec aux () =
         if Lwt.is_sleeping proc then (
-          let pp f = Fmt.pf f "Should kill %S" homedir in
-          (* XXX patricoferris: Pkill processes belonging to user then deleter user? *)
-          Os.Macos.pkill ~user:t.user
+          (* Find PID of the currently running command which should be the higest "parent"... *)
+          Os.Macos.find_pid ~cmd:(String.concat " " !run_cmd) >>= fun pid ->
+          match pid with
+            | Some pid -> Os.Macos.kill_all_descendants ~pid
+            | None -> Log.warn (fun f -> f "Failed to find pid..."); Lwt.return ()
           (*clean t*)
         ) else Lwt.return_unit  (* Process has already finished *)
       in
