@@ -89,12 +89,31 @@ let clean (t : t) =
     | _ -> Log.err (fun f -> f "Failed to delete user: %s" t.user); () *)
   Lwt.return ()
 
+let dataset path = String.split_on_char '/' path |> List.tl |> List.tl |> String.concat "/"
+
+(* ZFS mounting for config mounts *)
+let zfs_mount ~homedir { Config.Mount.src; dst } =
+  let mountpoint = Filename.concat homedir dst in
+  Os.ensure_dir mountpoint;
+  Os.Macos.zfs_set_mount ~mountpoint ~dataset:(dataset src) >>= fun _ ->
+  Os.sudo [ "chown"; "-R"; ":1000"; mountpoint ] >>= fun () ->
+  Os.sudo [ "chmod"; "-R"; "g+w"; mountpoint ] >>= fun () ->
+  Lwt.return ()
+
 (* A build step in macos: 
    - Should be properly sandboxed using sandbox-exec (coming soon...)
    - Umask g+w to work across users if restored from a snapshot
    - Set the new home directory of the user, to the new hash
    - Should be executed by the underlying user (t.uid) *)
-let run ~cancelled ?stdin:stdin ~log (t : t) config dataset_dir =
+let run ~cancelled ?stdin:stdin ~log (t : t)
+  { Config.cwd;
+    argv;
+    hostname = _; (* TODO? *)
+    user = _; (* macOS ignores the user because we use that for "sandboxing" *)
+    env;
+    mounts;
+    network = _; (* TODO? *)
+  } dataset_dir =
   Os.with_pipe_from_child @@ fun ~r:out_r ~w:out_w ->
   let user = t.user in
   let uid = string_of_int t.uid in
@@ -102,25 +121,24 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config dataset_dir =
   Os.Macos.create_new_user ~username:user ~home:homedir ~uid ~gid:"1000" >>= fun _ ->
   let set_homedir = Os.Macos.change_home_directory_for ~user ~homedir in
   let update_scoreboard = Os.Macos.update_scoreboard ~uid:t.uid ~homedir ~scoreboard:t.scoreboard in
-  let osenv = config.Config.env in
   let stdout = `FD_move_safely out_w in
   let stderr = stdout in
   let copy_log = copy_to_log ~src:out_r ~dst:log in
-  (* Very brittle way of extracting the dataset from the path... works for now *)
-  let dataset = String.split_on_char '/' dataset_dir |> List.tl |> List.tl |> String.concat "/" in
   let proc =
     let stdin = Option.map (fun x -> `FD_move_safely x) stdin in
-    let pp f = Os.pp_cmd f config.Config.argv in
+    let pp f = Os.pp_cmd f argv in
     Os.sudo_result ~pp set_homedir >>= fun _ ->
     Os.sudo_result ~pp update_scoreboard >>= fun _ ->
-    Os.Macos.zfs_set_mount ~mountpoint:homedir ~dataset >>= fun _ ->
+    Os.Macos.zfs_set_mount ~mountpoint:homedir ~dataset:(dataset dataset_dir) >>= fun _ ->
     Os.pread @@ Os.Macos.get_tmpdir ~user >>= fun tmpdir ->
     let tmpdir = List.hd (String.split_on_char '\n' tmpdir) in
-    let env = ("TMPDIR", tmpdir) :: osenv in
-    let cmd = run_as ~env ~user ~cmd:config.Config.argv in
-    Os.ensure_dir config.Config.cwd;
-    Os.exec_result ?stdin ~stdout ~stderr ~pp ~cwd:config.Config.cwd cmd >>= fun res ->
-    Os.Macos.zfs_unset_mount ~dataset >>= fun _ ->
+    let env = ("TMPDIR", tmpdir) :: env in
+    let cmd = run_as ~env ~user ~cmd:argv in
+    Os.ensure_dir cwd;
+    Lwt_list.iter_s (zfs_mount ~homedir) mounts >>= fun () ->
+    Os.exec_result ?stdin ~stdout ~stderr ~pp ~cwd cmd >>= fun res ->
+    (* Unmount mounts necessary ? *)
+    Os.Macos.zfs_unset_mount ~dataset:(dataset dataset_dir) >>= fun _ ->
     Lwt.return res
   in
   Lwt.on_termination cancelled (fun () ->
