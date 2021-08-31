@@ -56,6 +56,32 @@ let default_exec ?cwd ?stdin ?stdout ?stderr ~pp argv =
   | Unix.WSIGNALED x -> Fmt.error_msg "%t failed with signal %d" pp x
   | Unix.WSTOPPED x -> Fmt.error_msg "%t stopped with signal %a" pp pp_signal x
 
+(* similar to default_exec except useing open_process_none in order to get the
+   pid of the forked process. On macOS this allows for cleaner job cancellations *)
+let open_process ?cwd ?stdin ?stdout ?stderr ?pp:_ argv =
+  Logs.info (fun f -> f "Fork exec %a" pp_cmd argv);
+  let proc =
+    let stdin  = Option.map redirection stdin in
+    let stdout = Option.map redirection stdout in
+    let stderr = Option.map redirection stderr in
+    let process = Lwt_process.open_process_none ?cwd ?stdin ?stdout ?stderr ("", (Array.of_list argv)) in
+    (process#pid, process#status)
+  in
+  Option.iter close_redirection stdin;
+  Option.iter close_redirection stdout;
+  Option.iter close_redirection stderr;
+  proc
+
+let process_result ~pp proc =
+  proc >|= (function
+  | Unix.WEXITED n -> Ok n
+  | Unix.WSIGNALED x -> Fmt.error_msg "%t failed with signal %d" pp x
+  | Unix.WSTOPPED x -> Fmt.error_msg "%t stopped with signal %a" pp pp_signal x)
+  >>= function
+  | Ok 0 -> Lwt_result.return ()
+  | Ok n -> Lwt.return @@ Fmt.error_msg "%t failed with exit status %d" pp n
+  | Error e -> Lwt_result.fail (e : [`Msg of string] :> [> `Msg of string])
+
 (* Overridden in unit-tests *)
 let lwt_process_exec = ref default_exec
 
@@ -212,8 +238,6 @@ module Macos = struct
     Option.map fst (List.find_opt (fun (_, c) -> Log.info (fun f -> f "Does %s match %s" cmd c); String.equal cmd c) pid_args)
 
   let descendants ~pid =
-    if String.length pid = 0 then Lwt.return []
-    else
     Lwt.catch
       (fun () -> pread ["sudo"; "pgrep"; "-P"; pid ] >|= fun s -> Astring.String.cuts ~sep:"\n" s)
       (* Errors if there are none, probably errors for other reasons too... *)
@@ -221,17 +245,14 @@ module Macos = struct
 
   let pkill ~pid =
     let pp s ppf = Fmt.pf ppf "[ %s ]" s in
-    if String.length pid = 0 then (Log.warn (fun f -> f "Empty PID"); Lwt.return ())
-    else begin
-      let delete = ["pkill"; "-9"; "-P"; pid ] in
-      sudo_result ~pp:(pp "PKILL") delete >>= fun t ->
-        match t with
-        | Ok () -> Lwt.return ()
-        | Error (`Msg m) -> (
-          Log.warn (fun f -> f "Failed to pkill for %s because %s" pid m);
-          Lwt.return ()
-        )
-    end
+    let delete = ["pkill"; "-9"; "-P"; pid ] in
+    sudo_result ~pp:(pp "PKILL") delete >>= fun t ->
+      match t with
+      | Ok () -> Lwt.return ()
+      | Error (`Msg m) -> (
+        Log.warn (fun f -> f "Failed to pkill for %s because %s" pid m);
+        Lwt.return ()
+      )
 
   let kill_all_descendants ~pid =
     let rec kill pid : unit Lwt.t =

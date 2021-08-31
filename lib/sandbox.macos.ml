@@ -92,6 +92,7 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
   let stderr = stdout in
   let copy_log = copy_to_log ~src:out_r ~dst:log in
   let run_cmd : string list ref = ref [] in
+  let proc_id = ref None in
   let proc =
     let stdin = Option.map (fun x -> `FD_move_safely x) stdin in
     let pp f = Os.pp_cmd f config.Config.argv in
@@ -103,15 +104,15 @@ let run ~cancelled ?stdin:stdin ~log (t : t) config homedir =
     let cmd = run_as ~env ~user ~cmd:config.Config.argv in
     run_cmd := cmd;
     Os.ensure_dir config.Config.cwd;
-    Os.exec_result ?stdin ~stdout ~stderr ~pp ~cwd:config.Config.cwd cmd
+    let pid, proc = Os.open_process ?stdin ~stdout ~stderr ~pp ~cwd:config.Config.cwd cmd in
+    proc_id := Some pid;
+    Os.process_result ~pp proc
   in
   Lwt.on_termination cancelled (fun () ->
   let rec aux () =
         if Lwt.is_sleeping proc then (
-          (* Find PID of the currently running command which should be the higest "parent"... *)
-          Os.Macos.find_pid ~cmd:(String.concat " " !run_cmd) >>= fun pid ->
-          match pid with
-            | Some pid -> Os.Macos.kill_all_descendants ~pid
+          match !proc_id with
+            | Some pid -> Os.Macos.kill_all_descendants ~pid:(string_of_int pid)
             | None -> Log.warn (fun f -> f "Failed to find pid..."); Lwt.return ()
           (*clean t*)
         ) else Lwt.return_unit  (* Process has already finished *)
