@@ -245,14 +245,17 @@ module Macos = struct
 
   let pkill ~pid =
     let pp s ppf = Fmt.pf ppf "[ %s ]" s in
-    let delete = ["pkill"; "-9"; "-P"; pid ] in
-    sudo_result ~pp:(pp "PKILL") delete >>= fun t ->
-      match t with
-      | Ok () -> Lwt.return ()
-      | Error (`Msg m) -> (
-        Log.warn (fun f -> f "Failed to pkill for %s because %s" pid m);
-        Lwt.return ()
-      )
+    if String.length pid = 0 then (Log.warn (fun f -> f "Empty PID"); Lwt.return ())
+    else begin
+      let delete = ["pkill"; "-9"; "-P"; pid ] in
+      sudo_result ~pp:(pp "PKILL") delete >>= fun t ->
+        match t with
+        | Ok () -> Lwt.return ()
+        | Error (`Msg m) -> (
+          Log.warn (fun f -> f "Failed to pkill for %s because %s" pid m);
+          Lwt.return ()
+        )
+    end
 
   let kill_all_descendants ~pid =
     let rec kill pid : unit Lwt.t =
