@@ -247,12 +247,12 @@ module Macos = struct
     let pp s ppf = Fmt.pf ppf "[ %s ]" s in
     if String.length pid = 0 then (Log.warn (fun f -> f "Empty PID"); Lwt.return ())
     else begin
-      let delete = ["pkill"; "-9"; "-P"; pid ] in
-      sudo_result ~pp:(pp "PKILL") delete >>= fun t ->
+      let delete = ["kill"; "-9";  pid ] in
+      sudo_result ~pp:(pp "KILL") delete >>= fun t ->
         match t with
         | Ok () -> Lwt.return ()
         | Error (`Msg m) -> (
-          Log.warn (fun f -> f "Failed to pkill for %s because %s" pid m);
+          Log.warn (fun f -> f "Failed to kill process %s because %s" pid m);
           Lwt.return ()
         )
     end
