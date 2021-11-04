@@ -42,7 +42,8 @@ let copy_to_log ~src ~dst =
    some weird cachining bug, see https://github.com/patricoferris/obuilder/issues/9 *)
 let post_build () =
   let f = ["umount"; "-f"; "/usr/local"] in
-  Os.sudo f >>= fun _ -> Lwt.return ()
+  let pp ppf = Fmt.pf ppf "[ macFUSE ] " in
+  Os.sudo_result ~pp f >>= fun _ -> Lwt.return ()
 
 let rec pre_build (t : t) =
   let f = [ "obuilderfs"; t.scoreboard ; "/usr/local"; "-o"; "allow_other" ] in
