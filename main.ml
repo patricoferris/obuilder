@@ -2,9 +2,6 @@ open Lwt.Infix
 
 let ( / ) = Filename.concat
 
-module Sandbox = Obuilder.Runc_sandbox
-module Fetcher = Obuilder.Docker
-
 type builder = Builder : (module Obuilder.BUILDER with type t = 'a) * 'a -> builder
 
 let log tag msg =
@@ -14,9 +11,18 @@ let log tag msg =
   | `Output -> output_string stdout msg; flush stdout
 
 let create_builder spec conf =
-  Obuilder.Store_spec.to_store spec >>= fun (Store ((module Store), store)) ->
-  let module Builder = Obuilder.Builder(Store)(Sandbox)(Fetcher) in
-  Sandbox.create ~state_dir:(Store.state_dir store / "sandbox") conf >|= fun sandbox ->
+  let open Obuilder in
+  Store_spec.to_store spec >>= fun (Store ((module Store), store)) ->
+  let module Builder = Obuilder.Builder(Store)(Runc_sandbox)(Docker) in
+  Runc_sandbox.create ~state_dir:(Store.state_dir store / "sandbox") conf >|= fun sandbox ->
+  let builder = Builder.v ~store ~sandbox in
+  Builder ((module Builder), builder)
+
+let create_macos_builder spec conf =
+  let open Obuilder in
+  Store_spec.to_store spec >>= fun (Store ((module Store), store)) ->
+  let module Builder = Builder(Store)(Macos_sandbox)(User_temp) in
+  Macos_sandbox.create ~state_dir:(Store.state_dir store / "sandbox") conf >|= fun sandbox ->
   let builder = Builder.v ~store ~sandbox in
   Builder ((module Builder), builder)
 
@@ -26,9 +32,18 @@ let read_whole_file path =
   let len = in_channel_length ic in
   really_input_string ic len
 
-let build () store spec conf src_dir secrets =
+let select_sandbox store runc_conf macos_conf = match runc_conf, macos_conf with
+  | None, None -> Fmt.epr "Please provide the arguments for a runc or macOS backend"; exit 1
+  | Some conf, None -> create_builder store conf
+  | _, Some conf ->
+    match store with
+      | `Btrfs _ -> Fmt.epr "macOS does not work with btrfs"; exit 1
+      | s -> create_macos_builder s conf
+
+
+let build () store spec runc_conf macos_conf src_dir secrets =
   Lwt_main.run begin
-    create_builder store conf >>= fun (Builder ((module Builder), builder)) ->
+    select_sandbox store runc_conf macos_conf >>= fun (Builder ((module Builder), builder)) ->
     let spec =
       try Obuilder.Spec.t_of_sexp (Sexplib.Sexp.load_sexp spec)
       with Failure msg ->
@@ -48,6 +63,12 @@ let build () store spec conf src_dir secrets =
       Fmt.epr "Build step failed: %s@." m;
       exit 1
   end
+
+let build_runc () store spec runc_conf src_dir secrets =
+  build () store spec (Some runc_conf) None src_dir secrets
+
+let build_macos () store spec macos_conf src_dir secrets =
+  build () store spec None (Some macos_conf) src_dir secrets
 
 let healthcheck () store conf =
   Lwt_main.run begin
@@ -128,13 +149,18 @@ let secrets =
      ["secret"])
 
 let build =
-  let doc = "Build a spec file." in
-  Term.(const build $ setup_log $ store $ spec_file $ Sandbox.cmdliner $ src_dir $ secrets),
+  let doc = "Build a spec file using runc." in
+  Term.(const build_runc $ setup_log $ store $ spec_file $ Obuilder.Runc_sandbox.cmdliner $ src_dir $ secrets),
   Term.info "build" ~doc
+
+let build_macos =
+  let doc = "Build a spec file using the macOS backend." in
+  Term.(const build_macos $ setup_log $ store $ spec_file $ Obuilder.Macos_sandbox.cmdliner $ src_dir $ secrets),
+  Term.info "macos" ~doc
 
 let delete =
   let doc = "Recursively delete a cached build result." in
-  Term.(const delete $ setup_log $ store $ Sandbox.cmdliner $ id),
+  Term.(const delete $ setup_log $ store $ Obuilder.Runc_sandbox.cmdliner $ id),
   Term.info "delete" ~doc
 
 let buildkit =
@@ -151,10 +177,10 @@ let dockerfile =
 
 let healthcheck =
   let doc = "Perform a self-test" in
-  Term.(const healthcheck $ setup_log $ store $ Sandbox.cmdliner),
+  Term.(const healthcheck $ setup_log $ store $ Obuilder.Runc_sandbox.cmdliner),
   Term.info "healthcheck" ~doc
 
-let cmds = [build; delete; dockerfile; healthcheck]
+let cmds = [build; build_macos; delete; dockerfile; healthcheck]
 
 let default_cmd =
   let doc = "a command-line interface for OBuilder" in
