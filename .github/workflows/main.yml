@@ -57,5 +57,5 @@ jobs:
           mkdir var
           touch /usr/local/bin/obuilderfs && chmod +x /usr/local/bin/obuilderfs
           sudo mkdir /Users/empty && sudo touch /Users/empty/.obuilder_profile.sh
-          sudo dune exec -- obuilder macos . --store=rsync:$(PWD)/var -f example.macos.spec --uid=705 --fallback=/tmp --scoreboard=/tmp
+          sudo opam exec -- dune exec -- obuilder macos . --store=rsync:$(PWD)/var -f example.macos.spec --uid=705 --fallback=/tmp --scoreboard=/tmp
 
