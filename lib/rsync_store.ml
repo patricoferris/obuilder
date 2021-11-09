@@ -21,12 +21,7 @@ type t = {
 let ( / ) = Filename.concat
 
 module Rsync = struct
-  let ensure_dir path =
-    match Os.check_dir path with
-    | `Present -> Lwt.return ()
-    | `Missing -> Os.sudo [ "mkdir"; "-m"; "775"; path ]
-
-  let create dir = ensure_dir dir
+  let create dir = Lwt.return @@ Os.ensure_dir dir
 
   let delete dir =
     (* Sudo and rm... yikes *)
@@ -36,7 +31,8 @@ module Rsync = struct
 
   let copy_children ~src ~dst =
     let cmd = rsync @ [ Fmt.str "%s/" src; dst ] in
-    ensure_dir dst >>= fun () -> Os.sudo cmd
+    Os.ensure_dir dst;
+    Os.sudo cmd
 end
 
 module Path = struct
@@ -85,7 +81,7 @@ let build t ?base ~id fn =
       )
   (fun ex ->
       Log.warn (fun f -> f "Uncaught exception from %S build function: %a" id Fmt.exn ex);
-      (* Rsync.delete result_tmp >>= fun () -> *)
+      Rsync.delete result_tmp >>= fun () ->
       Lwt.fail ex
   )
 
