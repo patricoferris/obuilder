@@ -34,7 +34,8 @@ opam exec -- dune exec -- obuilder healthcheck --store=btrfs:/btrfs
 opam exec -- dune exec -- obuilder healthcheck --store=rsync:/tmp/root
 opam exec -- dune exec -- obuilder healthcheck --store=zfs:zfs
 opam exec -- dune exec -- ./stress/stress.exe btrfs:/btrfs
-opam exec -- dune exec -- ./stress/stress.exe rsync:/tmp/root
+# Takes too much space/too long for github action
+# opam exec -- dune exec -- ./stress/stress.exe rsync:/tmp/root
 opam exec -- dune exec -- ./stress/stress.exe zfs:zfs
 
 # Populate the caches from our own GitHub Actions cache

@@ -29,8 +29,16 @@ module Rsync = struct
 
   let rsync = [ "rsync"; "-aq" ]
 
-  let copy_children ~src ~dst =
-    let cmd = rsync @ [ Fmt.str "%s/" src; dst ] in
+  let rename ~src ~dst =
+    let cmd = [ "mv"; src; dst ] in
+    Os.sudo cmd
+
+  let copy_children ?chown ~src ~dst () =
+    let chown = match chown with
+      | Some uid_gid -> [ "--chown"; uid_gid ]
+      | None -> []
+    in
+    let cmd = rsync @ chown @ [ src ^ "/"; dst ] in
     Os.ensure_dir dst;
     Os.sudo cmd
 end
@@ -66,17 +74,16 @@ let build t ?base ~id fn =
   let result_tmp = Path.result_tmp t id in
   begin match base with
   | None -> Rsync.create result_tmp
-  | Some base -> Rsync.copy_children ~src:(Path.result t base) ~dst:result_tmp
+  | Some base -> Rsync.copy_children ~src:(Path.result t base) ~dst:result_tmp ()
   end
   >>= fun () ->
   Lwt.try_bind
       (fun () -> fn result_tmp)
       (fun r ->
       begin match r with
-          | Ok () -> Rsync.copy_children ~src:result_tmp ~dst:result
+          | Ok () -> Rsync.rename ~src:result_tmp ~dst:result
           | Error _ -> Lwt.return_unit
       end >>= fun () ->
-      Rsync.delete result_tmp >>= fun () ->
       Lwt.return r
       )
   (fun ex ->
@@ -120,9 +127,8 @@ let cache ~user t name =
   end >>= fun () ->
   (* Create writeable clone. *)
   let gen = cache.gen in
-  Rsync.copy_children ~src:snapshot ~dst:tmp >>= fun () ->
   let { Obuilder_spec.uid; gid } = user in
-  Os.sudo ["chown"; Printf.sprintf "%d:%d" uid gid; tmp] >>= fun () ->
+  Rsync.copy_children ~chown:(Printf.sprintf "%d:%d" uid gid) ~src:snapshot ~dst:tmp () >>= fun () ->
   let release () =
       Lwt_mutex.with_lock cache.lock @@ fun () ->
       begin
@@ -131,10 +137,9 @@ let cache ~user t name =
           (* todo: check if it has actually changed. *)
           cache.gen <- cache.gen + 1;
           Rsync.delete snapshot >>= fun () ->
-          Rsync.copy_children ~src:tmp ~dst:snapshot
+          Rsync.rename ~src:tmp ~dst:snapshot
       ) else Lwt.return_unit
-      end >>= fun () ->
-      Rsync.delete tmp
+      end
   in
   Lwt.return (tmp, release)
 
