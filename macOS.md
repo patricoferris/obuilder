@@ -34,10 +34,6 @@ In order to run the macOS backend to build a very simple `spec` (one that doesn'
    Because we are not running the FUSE filesystem the `fallback` and `scoreboard` directories should be somewhere you don't mind being written to but they won't
    actually be used.
 
-## Running the macOS backend with rsync
-
-This requires much less setup at the cost of it being very slow in comparison to snap-shotting filesystems. All you need to do is create a directory somewhere for the "snapshots" to be written and pass this as `--rsync:/path/to/dir`. Of course, you will need `rsync` installed.
-
 ## Docker images for macOS
 
 As mentioned elsewhere, OBuilder also abstracts the initial `FETCHER` whose job it is, is to interpret the `(from <base-image>)` stage and setup the base image in a given directory. When run on Linux this uses docker and exports the image and untars the filesystem into the directory. The same can be done for macOS! You can create a directory locally and then use the following dockerfile

@@ -128,7 +128,7 @@ let store =
   Arg.required @@
   Arg.opt Arg.(some store_t) None @@
   Arg.info
-    ~doc:"zfs:/path/pool, btrfs:/path or rsync:/path for build cache"
+    ~doc:"zfs:/path/pool or btrfs:/path for build cache"
     ~docv:"STORE"
     ["store"]
 

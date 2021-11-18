@@ -31,11 +31,8 @@ sudo chown "$(whoami)" /btrfs
 
 opam exec -- make
 opam exec -- dune exec -- obuilder healthcheck --store=btrfs:/btrfs
-opam exec -- dune exec -- obuilder healthcheck --store=rsync:/tmp/root
 opam exec -- dune exec -- obuilder healthcheck --store=zfs:zfs
 opam exec -- dune exec -- ./stress/stress.exe btrfs:/btrfs
-# Takes too much space/too long for github action
-# opam exec -- dune exec -- ./stress/stress.exe rsync:/tmp/root
 opam exec -- dune exec -- ./stress/stress.exe zfs:zfs
 
 # Populate the caches from our own GitHub Actions cache
@@ -49,6 +46,4 @@ sudo chown -R 1000:1000 /zfs/cache/c-opam-archives
 sudo zfs snapshot zfs/cache/c-opam-archives@snap
 
 opam exec -- dune exec -- obuilder build -f example.spec . --store=btrfs:/btrfs
-# It's a bit slow
-# opam exec -- dune exec -- obuilder build -f example.spec . --store=rsync:/tmp/root
 opam exec -- dune exec -- obuilder build -f example.spec . --store=zfs:zfs
