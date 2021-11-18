@@ -240,7 +240,7 @@ let cmd =
   Term.info "stress" ~doc
 
 let () =
-  (* Logs.(set_level (Some Info)); *)
+  Logs.(set_level (Some Debug));
   Fmt_tty.setup_std_outputs ();
   Logs.set_reporter @@ Logs.format_reporter ();
   term_exit @@ Term.eval cmd
