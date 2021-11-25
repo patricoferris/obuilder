@@ -24,7 +24,7 @@ jobs:
           sudo apt-get --allow-releaseinfo-change update && \
           sudo apt-get install -y btrfs-progs zfs-dkms zfsutils-linux && \
           sudo sed -i.bak 's/updates/extra updates/' /etc/depmod.d/ubuntu.conf && \
-          depmod && \
+          sudo depmod && \
           sudo systemctl stop zfs-zed.service && sudo modprobe -r zfs && sudo modprobe zfs
 
       - run: zfs --version
