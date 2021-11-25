@@ -13,9 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-20.04
-          - ubuntu-18.04
-          - ubuntu-16.04
+          - ubuntu-latest
         ocaml-compiler:
           - 4.13.x
 
@@ -23,6 +21,7 @@ jobs:
 
     steps:
       - run: |
+          sudo add-apt-repositor ppa:jonathonf/zfs && \
           sudo apt-get --allow-releaseinfo-change update && \
           sudo apt-get install -y btrfs-progs zfs-dkms zfsutils-linux
 
@@ -36,4 +35,6 @@ jobs:
 
       - run: opam install . --deps-only --with-test
 
-      - run: ./.run-gha-tests.sh
+      - run: |
+          zfs --version
+          ./.run-gha-tests.sh
