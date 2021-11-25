@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - run: |
-          sudo add-apt-repositor ppa:jonathonf/zfs && \
+          sudo add-apt-repository ppa:jonathonf/zfs && \
           sudo apt-get --allow-releaseinfo-change update && \
           sudo apt-get install -y btrfs-progs zfs-dkms zfsutils-linux
 
