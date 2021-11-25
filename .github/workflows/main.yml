@@ -22,7 +22,8 @@ jobs:
     steps:
       - run: |
           sudo apt-get update && \
-          sudo apt-get install -y btrfs-progs zfs-dkms
+          sudo apt-get install -y btrfs-progs zfs-dkms && \
+          sudo modprobe zfs
 
       - run: zfs --version
 
