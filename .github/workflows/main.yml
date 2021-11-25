@@ -22,7 +22,8 @@ jobs:
     steps:
       - run: |
           sudo apt-get --allow-releaseinfo-change update && \
-          sudo apt-get install -y btrfs-progs zfsutils-linux
+          sudo apt-get install -y btrfs-progs zfs-dkms zfsutils-linux && \
+          sudo modprobe -r zfs && sudo modprobe zfs
 
       - run: zfs --version
 
