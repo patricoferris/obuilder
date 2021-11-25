@@ -22,8 +22,7 @@ jobs:
     steps:
       - run: |
           sudo apt-get --allow-releaseinfo-change update && \
-          sudo apt-get install -y btrfs-progs zfs-dkms zfsutils-linux && \
-          sudo modprobe zfs
+          sudo apt-get install -y btrfs-progs zfsutils-linux
 
       - name: Checkout code
         uses: actions/checkout@v2
