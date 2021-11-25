@@ -21,9 +21,10 @@ jobs:
 
     steps:
       - run: |
-          sudo add-apt-repository ppa:jonathonf/zfs && \
           sudo apt-get --allow-releaseinfo-change update && \
-          sudo apt-get install -y btrfs-progs zfs-dkms zfsutils-linux
+          sudo apt-get install -y btrfs-progs zfsutils-linux
+
+      - run: zfs --version
 
       - name: Checkout code
         uses: actions/checkout@v2
@@ -35,6 +36,4 @@ jobs:
 
       - run: opam install . --deps-only --with-test
 
-      - run: |
-          zfs --version
-          ./.run-gha-tests.sh
+      - run: ./.run-gha-tests.sh
