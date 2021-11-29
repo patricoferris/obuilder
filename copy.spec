@@ -15,7 +15,7 @@
 	 (run
 	  (network host)
 	  (shell "sudo apt-get --allow-releaseinfo-change update"))
-	 (copy (src /tmp/opam-repository) (dst ~/opam-repository2))
+	 (copy (src ./opam-repository) (dst ~/opam-repository2))
 	 (run
 	  (network host)
 	  (shell
