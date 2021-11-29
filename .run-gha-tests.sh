@@ -40,6 +40,10 @@ opam exec -- dune exec -- ./stress/stress.exe btrfs:/btrfs
 opam exec -- dune exec -- ./stress/stress.exe rsync:/rsync
 opam exec -- dune exec -- ./stress/stress.exe zfs:zfs
 
+# Does tar work anymore ?
+git clone https://github.com/ocaml/opam-repository /tmp/opam-repository
+opam exec -- dune exec -- obuilder build -f copy.spec . --store=zfs:zfs
+
 # Populate the caches from our own GitHub Actions cache
 btrfs subvolume create /btrfs/cache/c-opam-archives
 cp -r ~/.opam/download-cache/* /btrfs/cache/c-opam-archives/
