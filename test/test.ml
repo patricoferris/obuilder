@@ -7,7 +7,7 @@ let ( / ) = Filename.concat
 let ( >>!= ) = Lwt_result.bind
 
 let () =
-  Logs.(set_level ~all:true (Some Info));
+  Logs.(set_level ~all:true (Some Debug));
   Logs.set_reporter @@ Logs_fmt.reporter ();
   Os.lwt_process_exec := Mock_exec.exec
 

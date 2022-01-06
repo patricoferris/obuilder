@@ -2,6 +2,7 @@
   (name test)
   (package obuilder)
   (deps base.tar)
-  (libraries alcotest-lwt obuilder str logs.fmt))
+  (libraries alcotest-lwt obuilder str logs.fmt)
+  (action (run %{test} -v -e --color=always)))
 
 (dirs :standard \ test1)

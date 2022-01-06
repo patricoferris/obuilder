@@ -25,7 +25,7 @@
   sha
   sqlite3
   (obuilder-spec (= :version))
-  (ocaml (>= 4.10.0))
+  (ocaml (>= 4.12))
   (alcotest-lwt :with-test)))
 (package
  (name obuilder-spec)

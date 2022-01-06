@@ -10,7 +10,14 @@ type t = {
     | `Finished
   ];
   mutable len : int;
+  id : int;
 }
+
+let pp f (func, t) =
+  let state_to_string = function
+      | `Open _ -> "open" | `Readonly _ -> "readonly"
+      | `Empty -> "empty" | `Finished -> "finished" in
+  Fmt.pf f "%s (%d:%s)" func t.id (state_to_string t.state)
 
 let with_dup fd fn =
   let fd = Lwt_unix.dup ~cloexec:true fd in
@@ -26,6 +33,7 @@ let catch_cancel fn =
     )
 
 let tail ?switch t dst =
+  Logs.debug (fun f -> f "%a" pp (__FUNCTION__, t));
   let rec readonly_tail ch buf =
     Lwt_io.read_into ch buf 0 max_chunk_size >>= function
     | 0 -> Lwt_result.return ()
@@ -70,12 +78,16 @@ let tail ?switch t dst =
 let create path =
   Lwt_unix.openfile path Lwt_unix.[O_CREAT; O_TRUNC; O_RDWR; O_CLOEXEC] 0o666 >|= fun fd ->
   let cond = Lwt_condition.create () in
-  {
+  let t = {
     state = `Open (fd, cond);
     len = 0;
-  }
+    id = Random.bits ();
+  } in
+  Logs.debug (fun f -> f "%a %s" pp (__FUNCTION__, t) path);
+  t
 
 let finish t =
+  Logs.debug (fun f -> f "%a" pp (__FUNCTION__, t));
   match t.state with
   | `Finished -> invalid_arg "Log is already finished!"
   | `Open (fd, cond) ->
@@ -101,10 +113,13 @@ let write t data =
 
 let of_saved path =
   Lwt_unix.lstat path >|= fun stat ->
-  {
+  let t = {
     state = `Readonly path;
     len = stat.st_size;
-  }
+    id = Random.bits ();
+  } in
+  Logs.debug (fun f -> f "%a %s" pp (__FUNCTION__, t) path);
+  t
 
 let printf t fmt =
   Fmt.kstr (write t) fmt
@@ -112,6 +127,7 @@ let printf t fmt =
 let empty = {
   state = `Empty;
   len = 0;
+  id = Random.bits ();
 }
 
 let copy ~src ~dst =
