@@ -50,5 +50,9 @@ sudo cp -r ~/.opam/download-cache/* /zfs/cache/c-opam-archives/
 sudo chown -R 1000:1000 /zfs/cache/c-opam-archives
 sudo zfs snapshot zfs/cache/c-opam-archives@snap
 
+# Test issues with run failures and build logs
+opam exec -- dune exec -- obuilder build -f test/specs/build-log.spec . --store=zfs:zfs
+
+
 opam exec -- dune exec -- obuilder build -f example.spec . --store=btrfs:/btrfs
 opam exec -- dune exec -- obuilder build -f example.spec . --store=zfs:zfs
