@@ -5,8 +5,11 @@
    ./macos.sh 
    ../../main.exe)
  (targets ./simple.out)
- (action 
-   (with-stdout-to ./simple.out (run ./macos.sh))))
+ (action
+   (progn
+    ; Pull the base image first so it doesn't impact the output, should be up to date with what's in the spec file 
+    (run docker pull patricoferris/empty@sha256:b95ca2b377dd736f609f0a10d63318c9f627a817823cf416402a29bfe9202bb9)
+    (with-stdout-to ./simple.out (run ./macos.sh)))))
 
 (rule
  (alias macos)
